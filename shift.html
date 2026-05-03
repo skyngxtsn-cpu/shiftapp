@@ -1,0 +1,2143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4a90e2">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<title>薬剤師シフト管理</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; margin: 0; padding: 12px; font-size: 14px; color: #222; background: #fafafa; }
+  h1 { margin: 0 0 4px 0; font-size: 18px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e0e0e0; }
+  #cycle-label { font-weight: bold; font-size: 15px; min-width: 220px; }
+  button { padding: 5px 10px; cursor: pointer; border: 1px solid #bbb; background: #fff; border-radius: 4px; font-size: 13px; }
+  button:hover { background: #f0f0f0; }
+  button.primary { background: #4a90e2; color: #fff; border-color: #4a90e2; }
+  button.primary:hover { background: #3a7bc7; }
+  button.danger { color: #c0392b; }
+
+  .mode-toggle { display: inline-flex; border: 1px solid #4a90e2; border-radius: 4px; overflow: hidden; }
+  .mode-toggle button { border: none; border-radius: 0; padding: 5px 12px; background: #fff; color: #4a90e2; }
+  .mode-toggle button.active { background: #4a90e2; color: #fff; }
+  .mode-toggle button:not(.active):hover { background: #e7f0fd; }
+
+  #legend { font-size: 12px; color: #666; margin-bottom: 6px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  #legend .swatch { display: inline-block; width: 14px; height: 14px; vertical-align: middle; border: 1px solid #ccc; margin-right: 3px; border-radius: 2px; }
+
+  #grid-container { overflow-x: auto; background: #fff; border: 1px solid #ddd; border-radius: 4px; }
+  table { border-collapse: collapse; font-size: 12px; }
+  th, td { border: 1px solid #ddd; padding: 2px 4px; text-align: center; min-width: 30px; height: 28px; }
+  th { background: #f5f5f5; font-weight: normal; }
+  th.sat { background: #ffeacc; }
+  th.sun, th.holiday { background: #e8e8e8; color: #999; }
+  td.name { background: #f8f8f8; font-weight: bold; text-align: left; padding: 4px 8px; min-width: 90px; position: sticky; left: 0; z-index: 1; border-right: 2px solid #bbb; }
+  td.name .type-badge { display: inline-block; font-size: 9px; padding: 1px 4px; border-radius: 8px; background: #e0e0e0; color: #555; margin-left: 4px; vertical-align: middle; }
+  td.name .type-badge.part { background: #ffe0b3; color: #aa5500; }
+  td.cell { cursor: pointer; user-select: none; font-weight: bold; }
+  td.cell:hover { outline: 2px solid #4a90e2; outline-offset: -2px; }
+  td.cell.off { background: #ffd5d5; color: #c0392b; }
+  td.cell.work { background: #d5e5ff; color: #2c5aa0; }
+  td.cell.work-unspec { background: #fff3a8; color: #8a6500; }
+  td.cell.work-pat { font-size: 10px; padding: 1px 2px; }
+  td.cell.help { background: #ffe5b3; color: #c47b00; }
+  td.cell.help-pat { background: #ffe5b3; color: #c47b00; font-size: 10px; padding: 1px 2px; border: 2px dashed #d4a050; }
+  td.cell.paid { background: #ffccdd; color: #8a3a6b; font-weight: bold; }
+  td.cell.paid-pat { background: #ffccdd; color: #8a3a6b; font-size: 10px; padding: 1px 2px; border: 2px solid #c070a0; }
+  td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
+  td.cell .lock-icon { position: absolute; top: 0; right: 1px; font-size: 9px; line-height: 1; pointer-events: none; }
+  body.lock-edit-mode td.cell { cursor: pointer; }
+  body.lock-edit-mode td.cell:hover { outline: 3px dashed #d4a017 !important; }
+  button.lock-edit-active { background: #fff3cd; border-color: #d4a017; color: #855700; }
+  td.cell.adjust-cell { font-size: 10px; padding: 1px 2px; line-height: 1.15; font-weight: normal; }
+  td.cell.adjust-cell .t { display: block; font-weight: bold; }
+  td.cell.adjust-cell .t.ovr { color: #c0392b; }
+  td.closed-cell { background: #f0f0f0; color: #aaa; cursor: default; }
+  td.holiday-cell { background: #ffeaea; color: #aaa; cursor: default; }
+  tr.divider td { border-top: 2px solid #999; }
+  tr.required td, tr.available td { font-size: 11px; padding: 2px; background: #fafafa; }
+  tr.required td.name, tr.available td.name { background: #f0f0f0; }
+  td.short { background: #ffb3b3; color: #c00; font-weight: bold; }
+  td.ok { background: #d4f4d4; color: #060; }
+  td.zero-need { background: #f0f0f0; color: #999; }
+  td.total { background: #f8f8f8; font-weight: bold; }
+
+  #rest-summary, #time-summary { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .panel { background: #fff; border: 1px solid #ddd; padding: 10px 12px; border-radius: 4px; }
+  .panel h3 { margin: 0 0 8px 0; font-size: 14px; padding-bottom: 4px; border-bottom: 1px solid #eee; }
+  .panel ul { margin: 0; padding-left: 20px; font-size: 13px; }
+  .panel li { margin: 3px 0; }
+  .ok-msg { color: #060; }
+  .warn-msg { color: #c0392b; }
+
+  /* Time summary */
+  .person-time { padding: 8px 0; border-bottom: 1px solid #eee; }
+  .person-time:last-child { border-bottom: none; }
+  .pt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .pt-head .nm { font-weight: bold; font-size: 14px; }
+  .pt-head .nm .type-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #e0e0e0; color: #555; margin-left: 6px; vertical-align: middle; }
+  .pt-head .nm .type-badge.part { background: #ffe0b3; color: #aa5500; }
+  .pt-head .nums { font-size: 13px; font-family: ui-monospace, monospace; }
+  .pt-head .nums .now { font-weight: bold; }
+  .pt-head .nums.over .now { color: #c0392b; }
+  .pt-head .nums.under .now { color: #d68000; }
+  .pt-head .nums.ok .now { color: #060; }
+  .pt-bar { height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+  .pt-bar > span { display: block; height: 100%; background: #4a90e2; transition: width .15s ease; }
+  .pt-bar.over > span { background: #e74c3c; }
+  .pt-bar.ok > span { background: #4bb84b; }
+  .pt-bar.under > span { background: #f0b040; }
+  .pt-weeks { font-size: 12px; color: #555; margin-top: 4px; padding-left: 12px; }
+  .pt-weeks .w-row { display: flex; gap: 8px; margin: 1px 0; }
+  .pt-weeks .w-over { color: #c0392b; font-weight: bold; }
+
+  /* Pattern popover */
+  #pattern-popover { position: absolute; background: #fff; border: 1px solid #888; border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; display: flex; flex-direction: column; gap: 3px; min-width: 180px; }
+  #pattern-popover[hidden] { display: none; }
+  #pattern-popover button { text-align: left; padding: 5px 8px; font-size: 12px; border: 1px solid #ddd; background: #fff; }
+  #pattern-popover button:hover { filter: brightness(0.95); }
+  #pattern-popover button small { color: #666; font-weight: normal; margin-left: 6px; }
+  #pattern-popover .pop-clear { color: #888; font-style: italic; }
+  #pattern-popover .pop-unspec { background: #fff3a8 !important; }
+
+  dialog { padding: 16px 20px; border: 1px solid #ccc; border-radius: 6px; min-width: 480px; max-width: 92vw; max-height: 92vh; }
+  dialog h2 { margin: 0 0 12px 0; font-size: 16px; }
+  dialog h3 { margin: 14px 0 6px 0; font-size: 14px; padding-top: 8px; border-top: 1px solid #eee; }
+  dialog h3:first-of-type { border-top: none; padding-top: 0; }
+  .members-list, .holidays-list { list-style: none; padding: 0; margin: 4px 0; }
+  .members-list li { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .members-list input[type="text"] { padding: 4px 6px; flex: 1; font-size: 14px; }
+  .members-list select { padding: 3px 4px; font-size: 13px; }
+  .holidays-list { max-height: 140px; overflow-y: auto; border: 1px solid #eee; padding: 4px; border-radius: 3px; }
+  .holidays-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin: 2px 0; font-size: 12px; }
+  .holidays-list .del-h { padding: 1px 6px; font-size: 11px; }
+  .add-row { display: flex; gap: 6px; margin-top: 4px; }
+  .add-row input { padding: 4px; font-size: 13px; flex: 1; }
+  .weekday-table, .patterns-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  .weekday-table th, .weekday-table td, .patterns-table th, .patterns-table td { border: 1px solid #e0e0e0; padding: 4px 6px; text-align: center; }
+  .weekday-table th, .patterns-table th { background: #f5f5f5; font-weight: normal; font-size: 12px; }
+  .weekday-table input[type="number"] { width: 56px; padding: 2px 4px; font-size: 13px; text-align: right; }
+  .weekday-table input[type="checkbox"] { transform: scale(1.1); }
+  .patterns-table input[type="text"] { width: 80px; padding: 2px 4px; font-size: 12px; }
+  .patterns-table input[type="time"] { width: 88px; padding: 2px 4px; font-size: 12px; }
+  .patterns-table input.time-input { width: 70px; padding: 2px 4px; font-size: 13px; text-align: center; font-family: ui-monospace, monospace; letter-spacing: 0.5px; }
+  input.time-input { font-family: ui-monospace, monospace; letter-spacing: 0.5px; text-align: center; }
+  .patterns-table input[type="number"] { width: 50px; padding: 2px 4px; font-size: 12px; text-align: right; }
+  .patterns-table input[type="color"] { width: 36px; height: 24px; padding: 0; border: 1px solid #ccc; }
+  .patterns-table .del-pat { padding: 1px 6px; font-size: 11px; }
+  .patterns-table .drag-handle { cursor: grab; user-select: none; color: #888; font-size: 16px; padding: 4px 6px; line-height: 1; }
+  .patterns-table .drag-handle:active { cursor: grabbing; }
+  .patterns-table tbody tr.drag-over { border-top: 3px solid #4a90e2; }
+  .patterns-table tbody tr.dragging { opacity: 0.4; }
+  .hint { font-size: 11px; color: #888; margin: 2px 0; }
+  .dialog-actions { margin-top: 14px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .fetch-status { font-size: 12px; margin-left: 8px; }
+  .types-config { font-size: 13px; margin-top: 4px; }
+  .types-config div { margin: 4px 0; }
+  .formula { font-family: ui-monospace, monospace; background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+
+  @media (max-width: 600px) {
+    #cycle-label { min-width: 0; font-size: 13px; }
+    body { padding: 6px; font-size: 13px; }
+    h1 { font-size: 16px; }
+    dialog { min-width: 0; width: 96vw; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>薬剤師シフト管理</h1>
+  <button id="prev">◀</button>
+  <span id="cycle-label"></span>
+  <button id="next">▶</button>
+  <div class="mode-toggle">
+    <button id="mode-rest" class="mode-btn active">休み決め</button>
+    <button id="mode-time" class="mode-btn">時間決め</button>
+    <button id="mode-adjust" class="mode-btn">最終調整</button>
+  </div>
+  <button id="auto-assign-btn" hidden>🎲 自動割り当て</button>
+  <button id="lock-edit-btn">🔒 ロック編集</button>
+  <button id="snapshot-btn">📷 スナップショット</button>
+  <button id="clear-cycle-btn" class="danger" style="border-color:#e0a0a0;">🗑 全クリア</button>
+  <button id="settings-btn">⚙ 設定</button>
+  <button id="export-btn">エクスポート</button>
+  <button id="import-btn">インポート</button>
+  <input type="file" id="import-file" accept=".json" hidden>
+</header>
+
+<div id="legend"></div>
+
+<section id="grid-container">
+  <table id="shift-grid"></table>
+</section>
+
+<section id="rest-summary">
+  <div class="panel" id="shortage-panel"></div>
+  <div class="panel" id="weekly-panel"></div>
+  <div class="panel" id="suggest-panel"></div>
+</section>
+
+<section id="time-summary" hidden>
+  <div class="panel" id="time-panel"></div>
+</section>
+
+<div id="pattern-popover" hidden></div>
+
+<dialog id="snapshot-dialog">
+  <h2>📷 スナップショット</h2>
+  <p class="hint">現在の周期のシフト状態 (休/出/ヘ + 時間 + ロック) を名前付きで保存・復元できます。</p>
+  <div class="add-row" style="margin-bottom:8px;">
+    <input type="text" id="snapshot-name" placeholder="スナップショット名 (例: 5月度・初稿)">
+    <button id="snapshot-save-btn" class="primary">現在の状態を保存</button>
+  </div>
+  <h3 style="font-size:14px;">保存済みスナップショット</h3>
+  <ul id="snapshot-list" style="list-style:none;padding:0;max-height:300px;overflow-y:auto;"></ul>
+  <div class="dialog-actions">
+    <button id="snapshot-close" class="primary">閉じる</button>
+  </div>
+</dialog>
+
+<dialog id="settings-dialog">
+  <h2>⚙ 設定</h2>
+
+  <h3>メンバー <span class="hint" id="people-count"></span></h3>
+  <ul class="members-list" id="members-list"></ul>
+  <div class="add-row">
+    <input type="text" id="new-member-name" placeholder="新しいメンバー名">
+    <button id="add-member-btn">+ 追加</button>
+    <button id="add-helper-btn" style="background:#fff5e0;border-color:#d4a050;color:#c47b00;">+ ヘルプ要員追加</button>
+  </div>
+
+  <h3>種別ごとの上限</h3>
+  <div class="types-config">
+    <div>
+      <b>正社員</b>: 月所定 = <span class="formula">floor(40 × 暦日数 ÷ 7 − 祝祭日数 × 8)</span>
+      <div class="hint">(編集不可。曜日設定の閉局・祝日カウントから自動算出)</div>
+    </div>
+    <div>
+      <b>パート</b>: 週上限
+      <input type="number" id="part-weekly-limit" min="0" step="1" style="width:60px;padding:2px 4px;"> 時間
+    </div>
+  </div>
+
+  <h3>シフトパターン</h3>
+  <p class="hint">時間モードで選択できる勤務パターン。色は時間表示時の背景色。</p>
+  <table class="patterns-table" id="patterns-table"></table>
+  <div class="add-row" style="margin-top:6px;">
+    <button id="add-pattern-btn">+ パターン追加</button>
+  </div>
+
+  <h3>曜日ごとの自動割当ルール</h3>
+  <p class="hint">🎲 自動割り当て の構成。時期によって変わる場合はここで編集してください。「なし」を選ぶとそのスロットは使われません。残り代替を指定すると日付の偶奇でローテーションされます（木曜の半日午前/午後など）。</p>
+  <table class="patterns-table" id="slots-table"></table>
+
+  <h3>曜日ごとの設定</h3>
+  <p class="hint">必要人数 = その日に出勤させる最低人数 / 休み価値 = その曜日に休みを取った時のカウント (週休チェック用)</p>
+  <table class="weekday-table" id="weekday-table"></table>
+  <div class="hint" style="margin-top:6px;">
+    週休チェックの最小値:
+    <input type="number" id="min-weekly-rest" step="0.5" min="0" max="7" style="width:56px;padding:2px 4px;"> 日相当
+  </div>
+
+  <h3>祝日（この周期内）</h3>
+  <p class="hint">祝日は閉局扱いになります。</p>
+  <ul class="holidays-list" id="holidays-list"></ul>
+  <div class="add-row">
+    <input type="date" id="new-holiday">
+    <input type="text" id="new-holiday-name" placeholder="名称（任意）" style="max-width:120px;">
+    <button id="add-holiday-btn">+ 追加</button>
+  </div>
+  <div class="add-row" style="margin-top:6px;">
+    <button id="fetch-holidays-btn">🌐 日本の祝日を自動取得</button>
+    <span id="fetch-status" class="fetch-status"></span>
+  </div>
+
+  <div class="dialog-actions">
+    <button id="reset-btn" class="danger">設定を初期値に戻す</button>
+    <button id="settings-close" class="primary">閉じる</button>
+  </div>
+</dialog>
+
+<script>
+const WD = ['日','月','火','水','木','金','土'];
+const STORAGE_KEY = 'pharmacy-shift-v1';
+const HOLIDAYS_API = 'https://holidays-jp.github.io/api/v1/date.json';
+
+function defaultWeekdaySettings() {
+  const slots = (eP, eC, lP, lC, fills) => ({
+    earlyPatternId: eP, earlyCount: eC,
+    latePatternId: lP,  lateCount: lC,
+    fills: fills
+  });
+  return {
+    0: { closed: true,  required: 0, offValue: 0,   slots: null },
+    1: { closed: false, required: 6, offValue: 1.0, slots: slots('early',     1, 'late',     2, [{ patternId: 'full',    count: 3, alt: null }]) },
+    2: { closed: false, required: 5, offValue: 1.0, slots: slots('early',     1, 'late',     2, [{ patternId: 'full',    count: 2, alt: null }]) },
+    3: { closed: false, required: 5, offValue: 1.0, slots: slots('early',     1, 'late',     2, [{ patternId: 'full',    count: 2, alt: null }]) },
+    4: { closed: false, required: 3, offValue: 1.0, slots: slots('thu_early', 1, 'thu_late', 1, [{ patternId: 'half_am', count: 1, alt: 'half_pm' }]) },
+    5: { closed: false, required: 5, offValue: 1.0, slots: slots('early',     1, 'late',     2, [{ patternId: 'full',    count: 2, alt: null }]) },
+    6: { closed: false, required: 6, offValue: 0.5, slots: slots('sat_early', 1, 'sat_late', 2, [{ patternId: 'sat',     count: 3, alt: null }]) },
+  };
+}
+
+function defaultShiftPatterns() {
+  return [
+    { id: 'early',     name: '早番',    start: '08:30', end: '18:30', breakMin: 60, color: '#ffe9b3' },
+    { id: 'full',      name: '通し',    start: '09:00', end: '19:00', breakMin: 60, color: '#cce0ff' },
+    { id: 'late',      name: '遅番',    start: '10:00', end: '19:00', breakMin: 60, color: '#d8c8ff' },
+    { id: 'thu',       name: '木曜通し', start: '09:00', end: '18:00', breakMin: 60, color: '#ccecd6' },
+    { id: 'thu_early', name: '木曜早',  start: '08:30', end: '18:00', breakMin: 60, color: '#ffe0a0' },
+    { id: 'thu_late',  name: '木曜遅',  start: '10:00', end: '18:00', breakMin: 60, color: '#cab8ff' },
+    { id: 'sat',       name: '土曜',    start: '09:00', end: '13:30', breakMin: 0,  color: '#ffd9b3' },
+    { id: 'sat_early', name: '土曜早',  start: '08:30', end: '13:30', breakMin: 0,  color: '#ffcc80' },
+    { id: 'sat_late',  name: '土曜遅',  start: '09:30', end: '13:30', breakMin: 0,  color: '#c0a8ff' },
+    { id: 'half_am',   name: '半日早',  start: '09:00', end: '14:00', breakMin: 0,  color: '#ffd0d9' },
+    { id: 'half_pm',   name: '半日遅',  start: '14:00', end: '19:00', breakMin: 0,  color: '#c8f0e0' },
+    { id: 'help_default', name: 'ヘルプ', start: '10:00', end: '18:00', breakMin: 60, color: '#ffdcaa' },
+    { id: 'paid',      name: '有給',    start: '09:00', end: '18:00', breakMin: 60, color: '#ffccdd' },
+  ];
+}
+
+function defaultPersonTypes() {
+  return {
+    '正社員': { kind: 'monthly' },
+    'パート': { kind: 'weekly', limitHours: 32 },
+    'ヘルプ': { kind: 'helper' }
+  };
+}
+
+function defaultData() {
+  return {
+    version: 3,
+    people: [
+      { id: 'p1', name: 'A', type: '正社員' },
+      { id: 'p2', name: 'B', type: '正社員' },
+      { id: 'p3', name: 'C', type: '正社員' },
+      { id: 'p4', name: 'D', type: '正社員' },
+      { id: 'p5', name: 'E', type: '正社員' },
+      { id: 'p6', name: 'F', type: '正社員' },
+      { id: 'h1', name: 'ヘルプ要員1', type: 'ヘルプ' },
+      { id: 'h2', name: 'ヘルプ要員2', type: 'ヘルプ' },
+    ],
+    cycles: {},
+    timeOverrides: {},
+    locks: {},
+    snapshots: [],
+    lockEditMode: false,
+    holidays: {},
+    holidaysFetchedAt: 0,
+    settings: {
+      weekdays: defaultWeekdaySettings(),
+      minWeeklyRest: 1.0,
+      shiftPatterns: defaultShiftPatterns(),
+      personTypes: defaultPersonTypes()
+    },
+    uiMode: 'rest',
+    currentCycle: cycleKeyFromDate(new Date('2026-05-03'))
+  };
+}
+
+function migrate(d) {
+  if (!d.timeOverrides) d.timeOverrides = {};
+  if (!d.locks) d.locks = {};
+  if (!Array.isArray(d.snapshots)) d.snapshots = [];
+  if (typeof d.lockEditMode !== 'boolean') d.lockEditMode = false;
+  if (!d.holidays) d.holidays = {};
+  if (typeof d.holidaysFetchedAt !== 'number') d.holidaysFetchedAt = 0;
+  if (!d.settings) d.settings = {};
+  if (!d.settings.weekdays) d.settings.weekdays = defaultWeekdaySettings();
+  if (typeof d.settings.minWeeklyRest !== 'number') d.settings.minWeeklyRest = 1.0;
+  const wdDefaults = defaultWeekdaySettings();
+  for (let i = 0; i < 7; i++) {
+    if (!d.settings.weekdays[i]) d.settings.weekdays[i] = wdDefaults[i];
+    // slots の補完
+    if (d.settings.weekdays[i].slots === undefined) {
+      d.settings.weekdays[i].slots = wdDefaults[i].slots;
+    }
+    // 旧 fillPatternId/fillAltPatternId を fills に変換
+    const sl = d.settings.weekdays[i].slots;
+    if (sl && !sl.fills) {
+      sl.fills = [];
+      const earlyLate = (sl.earlyCount || 0) + (sl.lateCount || 0);
+      const expected = Math.max(0, (d.settings.weekdays[i].required || 0) - earlyLate);
+      if (sl.fillPatternId) {
+        sl.fills.push({
+          patternId: sl.fillPatternId,
+          count: expected,
+          alt: sl.fillAltPatternId || null
+        });
+      }
+      delete sl.fillPatternId;
+      delete sl.fillAltPatternId;
+    }
+  }
+  if (!d.settings.shiftPatterns) d.settings.shiftPatterns = defaultShiftPatterns();
+  else {
+    // 新パターンを補完（既存は触らない）
+    const existingIds = new Set(d.settings.shiftPatterns.map(p => p.id));
+    for (const pat of defaultShiftPatterns()) {
+      if (!existingIds.has(pat.id)) d.settings.shiftPatterns.push(pat);
+    }
+  }
+  if (!d.settings.personTypes) d.settings.personTypes = defaultPersonTypes();
+  if (!d.settings.personTypes['ヘルプ']) d.settings.personTypes['ヘルプ'] = { kind: 'helper' };
+  for (const p of d.people) {
+    if (!p.type) p.type = '正社員';
+  }
+  if (!d.uiMode) d.uiMode = 'rest';
+  d.version = 3;
+  return d;
+}
+
+function cycleKeyFromDate(d) {
+  let y = d.getFullYear();
+  let m = d.getMonth() + 1;
+  if (d.getDate() < 16) { m -= 1; if (m < 1) { m = 12; y -= 1; } }
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+function cycleRange(key) {
+  const [y, m] = key.split('-').map(Number);
+  const start = new Date(y, m-1, 16);
+  const eM = m === 12 ? 1 : m + 1;
+  const eY = m === 12 ? y + 1 : y;
+  const end = new Date(eY, eM-1, 15);
+  return { start, end };
+}
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function listDates(start, end) {
+  const out = []; const d = new Date(start);
+  while (d <= end) { out.push(new Date(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+function shiftCycleKey(key, delta) {
+  const [y, m] = key.split('-').map(Number);
+  let nm = m + delta, ny = y;
+  while (nm > 12) { nm -= 12; ny += 1; }
+  while (nm < 1)  { nm += 12; ny -= 1; }
+  return `${ny}-${String(nm).padStart(2,'0')}`;
+}
+
+function loadState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return defaultData();
+  try { return migrate(JSON.parse(raw)); } catch { return defaultData(); }
+}
+function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+let state = loadState();
+
+function getCell(cycle, dk, pid) { return state.cycles[cycle]?.[dk]?.[pid] ?? null; }
+function setCell(cycle, dk, pid, value) {
+  if (!state.cycles[cycle]) state.cycles[cycle] = {};
+  if (!state.cycles[cycle][dk]) state.cycles[cycle][dk] = {};
+  if (value === null) delete state.cycles[cycle][dk][pid];
+  else state.cycles[cycle][dk][pid] = value;
+  if (Object.keys(state.cycles[cycle][dk]).length === 0) delete state.cycles[cycle][dk];
+  saveState();
+}
+function isHoliday(dk) { return !!state.holidays[dk]; }
+function isClosed(d, dk) {
+  return state.settings.weekdays[d.getDay()].closed || isHoliday(dk);
+}
+function effectiveRequired(d, dk) {
+  if (isClosed(d, dk)) return 0;
+  return state.settings.weekdays[d.getDay()].required;
+}
+function effectiveOffValue(d, dk) {
+  if (isClosed(d, dk)) return 0;
+  return state.settings.weekdays[d.getDay()].offValue;
+}
+function totalPeople() { return state.people.length; }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+// === Shift pattern / time calc helpers ===
+function isOff(v) { return v === 'off'; }
+function isWork(v) { return typeof v === 'string' && v.startsWith('work'); }
+function isHelp(v) { return typeof v === 'string' && v.startsWith('help'); }
+function isPaid(v) { return typeof v === 'string' && v.startsWith('paid'); }
+function isUnavailable(v) { return isOff(v) || isHelp(v) || isPaid(v); }
+function patternIdOf(v) {
+  if (!isWork(v) && !isHelp(v) && !isPaid(v)) return null;
+  const i = v.indexOf(':');
+  return i < 0 ? null : v.slice(i + 1);
+}
+function patternById(id) {
+  return state.settings.shiftPatterns.find(p => p.id === id) || null;
+}
+function calcHours(start, end, breakMin) {
+  if (!/^\d{1,2}:\d{2}$/.test(start) || !/^\d{1,2}:\d{2}$/.test(end)) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const mins = (eh*60+em) - (sh*60+sm) - (breakMin || 0);
+  return Math.max(0, mins / 60);
+}
+// 時間入力 (HH:MM) 用: 数字を打つと自動でコロンを挿入し、続けて分を打てる
+function attachTimeInput(inp) {
+  inp.addEventListener('input', (ev) => {
+    const isDeleting = ev.inputType && ev.inputType.startsWith('delete');
+    let v = inp.value.replace(/[^\d:]/g, '');
+    if (!isDeleting) {
+      const colonIdx = v.indexOf(':');
+      if (colonIdx >= 0) {
+        const before = v.substring(0, colonIdx).replace(/:/g, '').slice(0, 2);
+        const after  = v.substring(colonIdx + 1).replace(/:/g, '').slice(0, 2);
+        v = before + ':' + after;
+      } else if (v.length >= 2) {
+        v = v.slice(0, 2) + ':' + v.slice(2, 4);
+      }
+    }
+    if (v.length > 5) v = v.slice(0, 5);
+    if (inp.value !== v) inp.value = v;
+  });
+  inp.addEventListener('blur', () => {
+    const m = inp.value.match(/^(\d{1,2}):(\d{0,2})$/);
+    if (m) {
+      const h = m[1].padStart(2, '0');
+      const min = (m[2] || '00').padEnd(2, '0').slice(0, 2);
+      const newVal = `${h}:${min}`;
+      if (inp.value !== newVal) {
+        inp.value = newVal;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+  });
+}
+function patternHours(p) { return p ? calcHours(p.start, p.end, p.breakMin) : 0; }
+function getOverride(dk, pid) {
+  return state.timeOverrides?.[state.currentCycle]?.[dk]?.[pid] || null;
+}
+function setOverride(dk, pid, ov) {
+  if (!state.timeOverrides) state.timeOverrides = {};
+  const c = state.currentCycle;
+  if (!state.timeOverrides[c]) state.timeOverrides[c] = {};
+  if (!state.timeOverrides[c][dk]) state.timeOverrides[c][dk] = {};
+  if (!ov) {
+    delete state.timeOverrides[c][dk][pid];
+    if (Object.keys(state.timeOverrides[c][dk]).length === 0) delete state.timeOverrides[c][dk];
+    if (Object.keys(state.timeOverrides[c]).length === 0) delete state.timeOverrides[c];
+  } else {
+    state.timeOverrides[c][dk][pid] = ov;
+  }
+  saveState();
+}
+function effectiveTimeRange(dk, pid, pat) {
+  const ov = getOverride(dk, pid);
+  if (ov) return { start: ov.start, end: ov.end, override: true, breakMin: pat ? (pat.breakMin || 0) : 0 };
+  if (pat) return { start: pat.start, end: pat.end, override: false, breakMin: pat.breakMin || 0 };
+  return null;
+}
+function cellHours(v, dk, pid) {
+  if (!isWork(v) && !isHelp(v) && !isPaid(v)) return 0;
+  let id = patternIdOf(v);
+  // パターン未指定の paid/help セルは既定パターンを使う
+  if (!id && isPaid(v)) id = 'paid';
+  if (!id && isHelp(v)) id = 'help_default';
+  if (!id) return 0;
+  const pat = patternById(id);
+  if (!pat) return 0;
+  const r = effectiveTimeRange(dk, pid, pat);
+  return r ? calcHours(r.start, r.end, r.breakMin) : 0;
+}
+function shortTime(t) {
+  const [h, m] = t.split(':');
+  return m === '00' ? String(parseInt(h, 10)) : `${parseInt(h, 10)}:${m}`;
+}
+function personMonthlyHours(pid) {
+  const { start, end } = cycleRange(state.currentCycle);
+  let sum = 0;
+  for (const d of listDates(start, end)) {
+    const dk = dateKey(d);
+    sum += cellHours(getCell(state.currentCycle, dk, pid), dk, pid);
+  }
+  return sum;
+}
+function personWeeklyHours(pid, week) {
+  let sum = 0;
+  for (const d of week) {
+    const dk = dateKey(d);
+    sum += cellHours(getCell(state.currentCycle, dk, pid), dk, pid);
+  }
+  return sum;
+}
+function monthlyTarget(cycleKey) {
+  const { start, end } = cycleRange(cycleKey);
+  const dates = listDates(start, end);
+  const days = dates.length;
+  let holidayHours = 0;
+  for (const d of dates) {
+    const dk = dateKey(d);
+    if (isHoliday(dk) && d.getDay() !== 0) holidayHours += 8;
+  }
+  return Math.floor(40 * days / 7 - holidayHours);
+}
+function partWeeklyLimit() {
+  const t = state.settings.personTypes['パート'];
+  return t && typeof t.limitHours === 'number' ? t.limitHours : 32;
+}
+
+function render() {
+  renderHeader();
+  renderModeToggle();
+  renderLegend();
+  renderGrid();
+  renderSummary();
+}
+
+function renderHeader() {
+  const [y, m] = state.currentCycle.split('-').map(Number);
+  const eY = m === 12 ? y + 1 : y;
+  const eM = m === 12 ? 1 : m + 1;
+  document.getElementById('cycle-label').textContent =
+    `${y}年${m}月度 (${m}/16 〜 ${eM === 1 && eY !== y ? eY+'/' : ''}${eM}/15)`;
+}
+
+function renderModeToggle() {
+  document.getElementById('mode-rest').classList.toggle('active', state.uiMode === 'rest');
+  document.getElementById('mode-time').classList.toggle('active', state.uiMode === 'time');
+  document.getElementById('mode-adjust').classList.toggle('active', state.uiMode === 'adjust');
+  document.getElementById('rest-summary').hidden = state.uiMode !== 'rest';
+  document.getElementById('time-summary').hidden = !(state.uiMode === 'time' || state.uiMode === 'adjust');
+  document.getElementById('auto-assign-btn').hidden = state.uiMode !== 'time';
+  const lockBtn = document.getElementById('lock-edit-btn');
+  if (state.lockEditMode) {
+    lockBtn.classList.add('lock-edit-active');
+    lockBtn.textContent = '🔓 ロック編集を終了';
+    document.body.classList.add('lock-edit-mode');
+  } else {
+    lockBtn.classList.remove('lock-edit-active');
+    lockBtn.textContent = '🔒 ロック編集';
+    document.body.classList.remove('lock-edit-mode');
+  }
+}
+
+function renderLegend() {
+  const el = document.getElementById('legend');
+  if (state.uiMode === 'rest') {
+    el.innerHTML = `
+      <span><span class="swatch" style="background:#fff"></span>未設定</span>
+      <span><span class="swatch" style="background:#ffd5d5"></span>休 (絶対休み)</span>
+      <span><span class="swatch" style="background:#d5e5ff"></span>出 (絶対出勤)</span>
+      <span><span class="swatch" style="background:#ffe5b3"></span>ヘ (他店ヘルプ・−1)</span>
+      <span><span class="swatch" style="background:#ffccdd"></span>有 (有給・−1, 労働時間あり)</span>
+      <span>クリック: 空 → 休 → 出 → ヘ → 有 → 空</span>`;
+  } else if (state.uiMode === 'time') {
+    let html = `
+      <span><span class="swatch" style="background:#ffd5d5"></span>休</span>
+      <span><span class="swatch" style="background:#d5e5ff"></span>出 (時間未定)</span>`;
+    for (const p of state.settings.shiftPatterns) {
+      html += `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}</span>`;
+    }
+    html += `<span style="color:#666;">クリックでパターン選択</span>`;
+    el.innerHTML = html;
+  } else {
+    el.innerHTML = `
+      <span><span class="swatch" style="background:#ffd5d5"></span>休</span>
+      <span>パターンの色は固定、時間だけ15分刻みで変更</span>
+      <span style="color:#c0392b;font-weight:bold;">赤字</span><span>= パターンから変更済み</span>
+      <span style="color:#666;">クリックで時間編集</span>`;
+  }
+}
+
+function countOffOnDay(dk) {
+  let c = 0;
+  for (const p of state.people) if (isOff(getCell(state.currentCycle, dk, p.id))) c++;
+  return c;
+}
+function countUnavailableOnDay(dk) {
+  // 休 + ヘルプ (両方とも自店舗のカウントから外す) - 正社員/パートのみ対象
+  let c = 0;
+  for (const p of state.people) {
+    if (isHelperPerson(p)) continue;
+    if (isUnavailable(getCell(state.currentCycle, dk, p.id))) c++;
+  }
+  return c;
+}
+function isHelperPerson(p) { return p && p.type === 'ヘルプ'; }
+
+// === ロック関連 ===
+function isCellLocked(dk, pid) {
+  return !!state.locks?.[state.currentCycle]?.[dk]?.[pid];
+}
+function setCellLock(dk, pid, value) {
+  if (!state.locks) state.locks = {};
+  const c = state.currentCycle;
+  if (!state.locks[c]) state.locks[c] = {};
+  if (!state.locks[c][dk]) state.locks[c][dk] = {};
+  if (value) {
+    state.locks[c][dk][pid] = true;
+  } else {
+    delete state.locks[c][dk][pid];
+    if (Object.keys(state.locks[c][dk]).length === 0) delete state.locks[c][dk];
+    if (Object.keys(state.locks[c]).length === 0) delete state.locks[c];
+  }
+  saveState();
+}
+function regularsCount() { return state.people.filter(p => !isHelperPerson(p)).length; }
+function helpersInOnDay(dk) {
+  // ヘルプ要員のうち、その日来てくれる人数 (work* 扱い)
+  let c = 0;
+  for (const p of state.people) {
+    if (!isHelperPerson(p)) continue;
+    const v = getCell(state.currentCycle, dk, p.id);
+    if (isWork(v)) c++;
+  }
+  return c;
+}
+function totalAvailableOnDay(dk) {
+  // 自店舗での出勤可能人数 = 正社員/パート (休と他店ヘルプ除く) + ヘルプ要員 (来る人)
+  return regularsCount() - countUnavailableOnDay(dk) + helpersInOnDay(dk);
+}
+
+function renderGrid() {
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+  const mode = state.uiMode;
+  const isTime = mode === 'time';
+  const isAdjust = mode === 'adjust';
+  const isRest = mode === 'rest';
+
+  let html = '<thead><tr><th>名前</th>';
+  for (const d of dates) {
+    const wd = d.getDay();
+    const dk = dateKey(d);
+    const closedByWd = state.settings.weekdays[wd].closed;
+    const cls = isHoliday(dk) ? 'holiday' : closedByWd ? 'sun' : wd === 6 ? 'sat' : '';
+    const mark = isHoliday(dk) ? '祝' : WD[wd];
+    html += `<th class="${cls}">${d.getDate()}<br><small>${mark}</small></th>`;
+  }
+  html += `<th>${isRest ? '休計' : '時間計'}</th><th>早/遅</th></tr></thead><tbody>`;
+
+  const renderLockIcon = (locked) => locked ? '<span class="lock-icon">🔒</span>' : '';
+  for (const p of state.people) {
+    const isHelperRow = isHelperPerson(p);
+    const typeBadge = isHelperRow
+      ? '<span class="type-badge" style="background:#ffe5b3;color:#c47b00;">ヘ</span>'
+      : (p.type === 'パート' ? '<span class="type-badge part">パ</span>' : '');
+    const nameStyle = isHelperRow ? ' style="background:#fff5e0;"' : '';
+    html += `<tr${isHelperRow ? ' class="helper-row"' : ''}><td class="name"${nameStyle}>${escapeHtml(p.name)}${typeBadge}</td>`;
+    let restSum = 0;
+    let hourSum = 0;
+    for (const d of dates) {
+      const dk = dateKey(d);
+      if (isClosed(d, dk)) {
+        const cls = isHoliday(dk) ? 'holiday-cell' : 'closed-cell';
+        html += `<td class="${cls}">休</td>`;
+        continue;
+      }
+      const val = getCell(state.currentCycle, dk, p.id);
+      if (isRest) {
+        let cls = 'cell', txt = '';
+        if (isHelperRow) {
+          // ヘルプ要員: null=空(来ない), work=ヘ(+1)
+          if (isWork(val)) { cls = 'cell help'; txt = 'ヘ+'; }
+        } else {
+          if (isOff(val)) { cls = 'cell off'; txt = '休'; }
+          else if (isHelp(val)) { cls = 'cell help'; txt = 'ヘ'; }
+          else if (isPaid(val)) { cls = 'cell paid'; txt = '有'; }
+          else if (isWork(val)) { cls = 'cell work'; txt = '出'; }
+        }
+        html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
+        if (isOff(val)) restSum += effectiveOffValue(d, dk);
+      } else if (isTime) {
+        let cls = 'cell', txt = '', style = '';
+        if (isOff(val)) { cls = 'cell off'; txt = '休'; }
+        else if (isPaid(val)) {
+          const pid = patternIdOf(val);
+          const pat = pid ? patternById(pid) : patternById('paid');
+          if (pat) { cls = 'cell paid-pat'; txt = '有:' + escapeHtml(pat.name); hourSum += cellHours(val, dk, p.id); }
+          else { cls = 'cell paid'; txt = '有'; }
+        }
+        else if (isHelp(val)) {
+          const pid = patternIdOf(val);
+          const pat = pid ? patternById(pid) : null;
+          if (pat) { cls = 'cell help-pat'; txt = 'ヘ:' + escapeHtml(pat.name); }
+          else { cls = 'cell help'; txt = 'ヘ'; }
+          hourSum += cellHours(val, dk, p.id); // 既定パターンフォールバックは cellHours が処理
+        }
+        else if (isWork(val)) {
+          const pid = patternIdOf(val);
+          if (!pid) { cls = 'cell work'; txt = '出'; }
+          else {
+            const pat = patternById(pid);
+            if (pat) {
+              cls = 'cell work-pat';
+              txt = escapeHtml(pat.name);
+              style = `background:${pat.color};color:#222;`;
+              hourSum += cellHours(val, dk, p.id);
+            } else {
+              cls = 'cell work'; txt = '出';
+            }
+          }
+        }
+        html += `<td class="${cls}" style="${style}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
+      } else { // adjust
+        let cls = 'cell', txt = '', style = '';
+        if (isOff(val)) { cls = 'cell off'; txt = '休'; }
+        else if (isPaid(val)) {
+          const pid = patternIdOf(val);
+          const pat = pid ? patternById(pid) : patternById('paid');
+          if (pat) {
+            const r = effectiveTimeRange(dk, p.id, pat);
+            cls = 'cell paid-pat';
+            const ovrCls = r.override ? 'ovr' : '';
+            txt = `<span class="t ${ovrCls}">有 ${shortTime(r.start)}</span><span class="t ${ovrCls}">${shortTime(r.end)}</span>`;
+            hourSum += calcHours(r.start, r.end, r.breakMin);
+          } else {
+            cls = 'cell paid'; txt = '有';
+          }
+        }
+        else if (isHelp(val)) {
+          const pid = patternIdOf(val);
+          const pat = pid ? patternById(pid) : patternById('help_default');
+          if (pat) {
+            const r = effectiveTimeRange(dk, p.id, pat);
+            cls = 'cell help-pat';
+            const ovrCls = r.override ? 'ovr' : '';
+            txt = `<span class="t ${ovrCls}">ヘ ${shortTime(r.start)}</span><span class="t ${ovrCls}">${shortTime(r.end)}</span>`;
+            hourSum += calcHours(r.start, r.end, r.breakMin);
+          } else {
+            cls = 'cell help'; txt = 'ヘ';
+          }
+        }
+        else if (isWork(val)) {
+          const pid = patternIdOf(val);
+          const pat = pid ? patternById(pid) : null;
+          if (pat) {
+            const r = effectiveTimeRange(dk, p.id, pat);
+            cls = 'cell adjust-cell';
+            style = `background:${pat.color};color:#222;`;
+            const ovrCls = r.override ? 'ovr' : '';
+            txt = `<span class="t ${ovrCls}">${shortTime(r.start)}</span><span class="t ${ovrCls}">${shortTime(r.end)}</span>`;
+            hourSum += calcHours(r.start, r.end, r.breakMin);
+          } else {
+            cls = 'cell work'; txt = '出';
+          }
+        }
+        html += `<td class="${cls}" style="${style}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
+      }
+    }
+    // 早/遅 カウント (パターン名に「早」「遅」を含むセル数)
+    let earlyCount = 0, lateCount = 0;
+    for (const d of dates) {
+      const dk2 = dateKey(d);
+      if (isClosed(d, dk2)) continue;
+      const v = getCell(state.currentCycle, dk2, p.id);
+      const pId = patternIdOf(v);
+      if (!pId) continue;
+      const pat = patternById(pId);
+      if (!pat) continue;
+      if (pat.name.includes('早')) earlyCount++;
+      if (pat.name.includes('遅')) lateCount++;
+    }
+    const earlyLateCell = `<td class="total" style="font-size:10px;line-height:1.15;">早${earlyCount}<br>遅${lateCount}</td>`;
+    if (isRest) html += `<td class="total">${restSum}</td>${earlyLateCell}</tr>`;
+    else html += `<td class="total">${hourSum.toFixed(1)}h</td>${earlyLateCell}</tr>`;
+  }
+
+  if (isRest) {
+    html += '<tr class="required divider"><td class="name">必要</td>';
+    for (const d of dates) {
+      const dk = dateKey(d);
+      const req = effectiveRequired(d, dk);
+      html += `<td class="${req === 0 ? 'zero-need' : ''}">${req || '-'}</td>`;
+    }
+    html += '<td></td><td></td></tr>';
+    html += '<tr class="available"><td class="name">出勤可</td>';
+    for (const d of dates) {
+      const dk = dateKey(d);
+      if (isClosed(d, dk)) { html += '<td class="zero-need">-</td>'; continue; }
+      const avail = totalAvailableOnDay(dk); // 正社員/パート(休・ヘ除く) + ヘルプ要員(来る人)
+      const helpersIn = helpersInOnDay(dk);
+      const req = effectiveRequired(d, dk);
+      const cls = avail < req ? 'short' : 'ok';
+      const txt = helpersIn > 0 ? `${avail}/${req}<br><small style="color:#c47b00;">+ヘ${helpersIn}</small>` : `${avail}/${req}`;
+      html += `<td class="${cls}">${txt}</td>`;
+    }
+    html += '<td></td><td></td></tr>';
+  }
+
+  html += '</tbody>';
+  const tbl = document.getElementById('shift-grid');
+  tbl.innerHTML = html;
+
+  tbl.querySelectorAll('td.cell').forEach(td => {
+    const dk0 = td.dataset.date;
+    const pid0 = td.dataset.person;
+    if (isCellLocked(dk0, pid0)) {
+      td.classList.add('locked');
+      td.insertAdjacentHTML('beforeend', '<span class="lock-icon">🔒</span>');
+    }
+    td.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const dk = td.dataset.date;
+      const pid = td.dataset.person;
+      // ロック編集モード: クリックでロック切替 (値は変更しない)
+      if (state.lockEditMode) {
+        setCellLock(dk, pid, !isCellLocked(dk, pid));
+        render();
+        return;
+      }
+      // ロック中のセルは通常クリックでは変更不可
+      // ただし最終調整モードでは「時間確認のみ」(編集不可) で開ける
+      if (isCellLocked(dk, pid)) {
+        if (state.uiMode === 'adjust') {
+          const cur2 = getCell(state.currentCycle, dk, pid);
+          if (!isOff(cur2)) {
+            const id2 = patternIdOf(cur2);
+            if (id2 || isHelp(cur2) || isPaid(cur2)) {
+              showTimeAdjustPopover(td, dk, pid, true);
+            }
+          }
+        }
+        return;
+      }
+      const cur = getCell(state.currentCycle, dk, pid);
+      const person = state.people.find(x => x.id === pid);
+      const isHelperRow = isHelperPerson(person);
+      if (state.uiMode === 'rest') {
+        let next;
+        if (isHelperRow) {
+          // ヘルプ要員: 2状態循環 null → work → null
+          next = !cur ? 'work' : null;
+        } else {
+          // 通常: 5状態循環 null → off → work → help → paid → null
+          if (!cur) next = 'off';
+          else if (isOff(cur)) next = 'work';
+          else if (isWork(cur)) next = 'help';
+          else if (isHelp(cur)) next = 'paid';
+          else next = null;
+        }
+        setCell(state.currentCycle, dk, pid, next);
+        render();
+      } else if (state.uiMode === 'time') {
+        if (isOff(cur)) return;
+        showPatternPopover(td, dk, pid);
+      } else { // adjust
+        if (isOff(cur)) return;
+        const id = patternIdOf(cur);
+        if (!id) return; // パターン未割当は調整不可
+        showTimeAdjustPopover(td, dk, pid);
+      }
+    });
+  });
+}
+
+function groupByWeek(dates) {
+  const weeks = []; let cur = [];
+  for (const d of dates) {
+    if (d.getDay() === 1 && cur.length > 0) { weeks.push(cur); cur = []; }
+    cur.push(d);
+  }
+  if (cur.length) weeks.push(cur);
+  return weeks;
+}
+
+function renderSummary() {
+  if (state.uiMode === 'rest') renderRestSummary();
+  else renderTimeSummary();
+}
+
+function renderRestSummary() {
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+
+  const shorts = [];
+  for (const d of dates) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) continue;
+    const avail = totalAvailableOnDay(dk);
+    const req = effectiveRequired(d, dk);
+    if (avail < req) shorts.push({ d, avail, req, short: req - avail });
+  }
+  let h1 = '<h3>① 不足日（ヘルプ要請対象）</h3>';
+  if (shorts.length === 0) h1 += '<p class="ok-msg">不足日なし ✅</p>';
+  else {
+    h1 += '<ul>';
+    for (const s of shorts) h1 += `<li class="warn-msg">${s.d.getMonth()+1}/${s.d.getDate()}(${WD[s.d.getDay()]}) 出勤可${s.avail}/必要${s.req} → <b>${s.short}人不足</b></li>`;
+    h1 += '</ul>';
+  }
+  document.getElementById('shortage-panel').innerHTML = h1;
+
+  const weeks = groupByWeek(dates);
+  const minRest = state.settings.minWeeklyRest;
+  const restProblems = [];
+  for (const week of weeks) {
+    for (const p of state.people) {
+      if (isHelperPerson(p)) continue; // ヘルプ要員は週休対象外
+      let rest = 0;
+      for (const d of week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        if (isOff(getCell(state.currentCycle, dk, p.id))) rest += effectiveOffValue(d, dk);
+      }
+      if (rest < minRest) restProblems.push({ p, week, rest });
+    }
+  }
+  let h2 = `<h3>② 週休チェック（週${minRest}日相当）</h3>`;
+  if (restProblems.length === 0) h2 += '<p class="ok-msg">全員クリア ✅</p>';
+  else {
+    h2 += '<ul>';
+    for (const r of restProblems) {
+      const ws = r.week[0], we = r.week[r.week.length-1];
+      h2 += `<li class="warn-msg"><b>${escapeHtml(r.p.name)}</b>: ${ws.getMonth()+1}/${ws.getDate()}〜${we.getMonth()+1}/${we.getDate()} 休み${r.rest}日 (不足${(minRest-r.rest).toFixed(1)}日)</li>`;
+    }
+    h2 += '</ul>';
+  }
+  document.getElementById('weekly-panel').innerHTML = h2;
+
+  let h3 = '<h3>③ 休みの提案</h3>';
+  const sugList = [];
+  for (const r of restProblems) {
+    const cands = [];
+    for (const d of r.week) {
+      const dk = dateKey(d);
+      if (isClosed(d, dk)) continue;
+      if (getCell(state.currentCycle, dk, r.p.id) !== null) continue;
+      const avail = totalAvailableOnDay(dk);
+      const req = effectiveRequired(d, dk);
+      const ov = effectiveOffValue(d, dk);
+      if (avail - 1 >= req && ov > 0) cands.push({ d, ov });
+    }
+    cands.sort((a, b) => b.ov - a.ov);
+    if (cands.length) sugList.push({ p: r.p, cands });
+  }
+  if (sugList.length === 0) h3 += '<p>提案なし</p>';
+  else {
+    h3 += '<ul>';
+    for (const s of sugList) {
+      const txt = s.cands.map(c => `${c.d.getMonth()+1}/${c.d.getDate()}(${WD[c.d.getDay()]}${c.ov<1?'・'+c.ov:''})`).join('、');
+      h3 += `<li><b>${escapeHtml(s.p.name)}</b> → ${txt}</li>`;
+    }
+    h3 += '</ul>';
+  }
+  document.getElementById('suggest-panel').innerHTML = h3;
+}
+
+function renderTimeSummary() {
+  const target = monthlyTarget(state.currentCycle);
+  const partLimit = partWeeklyLimit();
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+  const weeks = groupByWeek(dates);
+
+  let html = `<h3>勤務時間サマリー</h3>`;
+  html += `<div class="hint" style="margin-bottom:6px;">月所定: <b>${target}h</b> (式: floor(40×${dates.length}÷7−祝日h))</div>`;
+
+  for (const p of state.people) {
+    if (isHelperPerson(p)) continue; // ヘルプ要員は労働時間目標なし
+    const isPart = p.type === 'パート';
+    const badgeCls = isPart ? 'type-badge part' : 'type-badge';
+    const badge = `<span class="${badgeCls}">${escapeHtml(p.type || '正社員')}</span>`;
+
+    if (!isPart) {
+      const cur = personMonthlyHours(p.id);
+      const diff = cur - target;
+      const pct = target > 0 ? Math.min(100, Math.max(0, cur / target * 100)) : 0;
+      let barCls = 'ok', numsCls = 'ok', diffTxt;
+      if (diff > 0.5) { barCls = 'over'; numsCls = 'over'; diffTxt = `+${diff.toFixed(1)}h 超過`; }
+      else if (diff < -0.5) { barCls = 'under'; numsCls = 'under'; diffTxt = `${diff.toFixed(1)}h 不足`; }
+      else { diffTxt = '±0h'; }
+      html += `<div class="person-time">
+        <div class="pt-head">
+          <span class="nm">${escapeHtml(p.name)}${badge}</span>
+          <span class="nums ${numsCls}"><span class="now">${cur.toFixed(1)}h</span> / ${target}h <small>(${diffTxt})</small></span>
+        </div>
+        <div class="pt-bar ${barCls}"><span style="width:${pct}%"></span></div>
+      </div>`;
+    } else {
+      const monthCur = personMonthlyHours(p.id);
+      let weekRows = '';
+      let anyOver = false;
+      for (const w of weeks) {
+        const wh = personWeeklyHours(p.id, w);
+        const ws = w[0], we = w[w.length-1];
+        const over = wh > partLimit;
+        if (over) anyOver = true;
+        weekRows += `<div class="w-row ${over ? 'w-over' : ''}">
+          <span>${ws.getMonth()+1}/${ws.getDate()}〜${we.getMonth()+1}/${we.getDate()}:</span>
+          <span>${wh.toFixed(1)}h / ${partLimit}h${over ? ` ⚠ +${(wh-partLimit).toFixed(1)}h超過` : ''}</span>
+        </div>`;
+      }
+      const numsCls = anyOver ? 'over' : 'ok';
+      html += `<div class="person-time">
+        <div class="pt-head">
+          <span class="nm">${escapeHtml(p.name)}${badge}</span>
+          <span class="nums ${numsCls}"><span class="now">月計${monthCur.toFixed(1)}h</span> / 週上限${partLimit}h</span>
+        </div>
+        <div class="pt-weeks">${weekRows}</div>
+      </div>`;
+    }
+  }
+
+  document.getElementById('time-panel').innerHTML = html;
+}
+
+// === Pattern popover ===
+function showPatternPopover(targetTd, dk, pid) {
+  const pop = document.getElementById('pattern-popover');
+  const cur = getCell(state.currentCycle, dk, pid);
+  const person = state.people.find(x => x.id === pid);
+  const isHelperRow = isHelperPerson(person);
+  // ヘルプ要員行は常に work: プレフィックス。通常行で help/paid セルはそれぞれのプレフィックス
+  const isHelpBase = !isHelperRow && isHelp(cur);
+  const isPaidBase = !isHelperRow && isPaid(cur);
+  const prefix = isHelpBase ? 'help' : (isPaidBase ? 'paid' : 'work');
+  const labelType = isHelperRow ? 'ヘ' : (isHelpBase ? 'ヘ' : (isPaidBase ? '有' : '出'));
+  let html = `<button class="pop-clear" data-val="">— なし（未設定に戻す）—</button>`;
+  html += `<button class="pop-unspec" data-val="${prefix}">${labelType} (時間未定)</button>`;
+  if (isHelperRow) {
+    html += `<div style="font-size:11px;color:#c47b00;padding:2px 4px;background:#ffe5b3;border-radius:3px;margin:2px 0;">＋ ヘルプ要員 (店舗にプラス1)</div>`;
+  } else if (isHelpBase) {
+    html += `<div style="font-size:11px;color:#c47b00;padding:2px 4px;background:#ffe5b3;border-radius:3px;margin:2px 0;">※ 他店ヘルプ状態 (店舗カウント外)</div>`;
+  } else if (isPaidBase) {
+    html += `<div style="font-size:11px;color:#8a3a6b;padding:2px 4px;background:#ffccdd;border-radius:3px;margin:2px 0;">※ 有給 (店舗カウント外、労働時間に算入)</div>`;
+  }
+  for (const pat of state.settings.shiftPatterns) {
+    const sel = cur === `${prefix}:${pat.id}` ? ' ★' : '';
+    html += `<button data-val="${prefix}:${pat.id}" style="background:${pat.color}"><b>${escapeHtml(pat.name)}${sel}</b><small>${pat.start}-${pat.end}${pat.breakMin?` 休${pat.breakMin}分`:''} = ${patternHours(pat).toFixed(1)}h</small></button>`;
+  }
+  // 時間直接編集ボタン: パターン割当済 or help/paid セルなら表示 (フラグを保ったまま時間だけ変更可能)
+  const canTimeEdit = !!(patternIdOf(cur) || isHelp(cur) || isPaid(cur));
+  if (canTimeEdit) {
+    html += `<button id="pop-time-edit" style="background:#fff3cd;border-color:#d4a017;color:#855700;font-weight:bold;margin-top:6px;">🕐 時間を直接編集 (15分単位)</button>`;
+  }
+  pop.innerHTML = html;
+  // 「時間を直接編集」ボタン: ポップオーバーを切り替えて時間調整画面に
+  const timeEditBtn = pop.querySelector('#pop-time-edit');
+  if (timeEditBtn) {
+    timeEditBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      pop.hidden = true;
+      showTimeAdjustPopover(targetTd, dk, pid);
+    };
+  }
+  // パターン選択ボタン (data-val属性があるもののみ)
+  pop.querySelectorAll('button[data-val]').forEach(b => {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      const v = b.dataset.val;
+      setCell(state.currentCycle, dk, pid, v || null);
+      pop.hidden = true;
+      render();
+    };
+  });
+  const rect = targetTd.getBoundingClientRect();
+  let left = rect.left + window.scrollX;
+  let top = rect.bottom + window.scrollY + 2;
+  pop.hidden = false;
+  // adjust if overflowing right
+  const popW = pop.offsetWidth;
+  const winW = window.innerWidth;
+  if (left + popW > window.scrollX + winW - 10) {
+    left = window.scrollX + winW - popW - 10;
+  }
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+function showTimeAdjustPopover(targetTd, dk, pid, readOnly = false) {
+  const pop = document.getElementById('pattern-popover');
+  let cur = getCell(state.currentCycle, dk, pid);
+  let id = patternIdOf(cur);
+  // パターン未指定の help/paid → 既定パターンを設定してから時間調整に入る
+  // (readOnly 時は state を書き換えず、表示だけ既定パターンで行う)
+  if (!id) {
+    if (isPaid(cur)) {
+      if (!readOnly) { setCell(state.currentCycle, dk, pid, 'paid:paid'); cur = 'paid:paid'; }
+      id = 'paid';
+    } else if (isHelp(cur)) {
+      if (!readOnly) { setCell(state.currentCycle, dk, pid, 'help:help_default'); cur = 'help:help_default'; }
+      id = 'help_default';
+    } else {
+      return; // work alone or null → パターンを先に決める必要
+    }
+  }
+  const pat = patternById(id);
+  if (!pat) return;
+  const r = effectiveTimeRange(dk, pid, pat);
+  const lockBanner = readOnly
+    ? `<div style="font-size:11px;color:#855700;background:#fff3cd;border:1px solid #d4a017;padding:4px 6px;border-radius:3px;margin-bottom:6px;">🔒 ロック中 (閲覧のみ・編集するにはロックを外してください)</div>`
+    : '';
+  pop.innerHTML = `
+    <div style="padding:2px 4px;min-width:240px;">
+      ${lockBanner}
+      <div style="font-weight:bold;font-size:13px;background:${pat.color};padding:5px 8px;border-radius:3px;margin-bottom:8px;">
+        ${escapeHtml(pat.name)}
+        <small style="font-weight:normal;color:#555;display:block;font-size:11px;">パターン: ${pat.start}-${pat.end} / 休憩${pat.breakMin || 0}分</small>
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;font-size:13px;">
+        <label>開始</label><input type="text" class="time-input" inputmode="numeric" maxlength="5" placeholder="HH:MM" id="adj-start" value="${r.start}" style="padding:4px 6px;font-size:14px;width:90px;" ${readOnly?'disabled':''}>
+        <label>終了</label><input type="text" class="time-input" inputmode="numeric" maxlength="5" placeholder="HH:MM" id="adj-end" value="${r.end}" style="padding:4px 6px;font-size:14px;width:90px;" ${readOnly?'disabled':''}>
+        <label>労働時間</label><span id="adj-hours" style="font-family:ui-monospace,monospace;"></span>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:6px;justify-content:space-between;">
+        <button id="adj-reset" style="font-size:12px;${readOnly?'display:none;':''}">パターン通りに戻す</button>
+        <button id="adj-close" class="primary" style="font-size:12px;">閉じる</button>
+      </div>
+    </div>`;
+  pop.hidden = false;
+  const rect = targetTd.getBoundingClientRect();
+  let left = rect.left + window.scrollX;
+  let top = rect.bottom + window.scrollY + 2;
+  const popW = pop.offsetWidth;
+  const winW = window.innerWidth;
+  if (left + popW > window.scrollX + winW - 10) left = window.scrollX + winW - popW - 10;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+
+  const startInp = pop.querySelector('#adj-start');
+  const endInp = pop.querySelector('#adj-end');
+  const hoursLabel = pop.querySelector('#adj-hours');
+  const updateHoursDisplay = () => {
+    hoursLabel.textContent = calcHours(startInp.value, endInp.value, pat.breakMin || 0).toFixed(2) + 'h';
+  };
+  updateHoursDisplay();
+  // readOnly 時はイベントを付けず、閉じるボタンのみ有効
+  if (readOnly) {
+    pop.querySelector('#adj-close').onclick = (ev) => { ev.stopPropagation(); pop.hidden = true; };
+    return;
+  }
+  attachTimeInput(startInp);
+  attachTimeInput(endInp);
+  const apply = () => {
+    const s = startInp.value, e = endInp.value;
+    updateHoursDisplay();
+    // HH:MM が完全に揃った時だけ state を更新
+    const valid = /^\d{2}:\d{2}$/;
+    if (!valid.test(s) || !valid.test(e)) return;
+    const isPattern = (s === pat.start && e === pat.end);
+    setOverride(dk, pid, isPattern ? null : { start: s, end: e });
+    render();
+  };
+  startInp.addEventListener('input', apply);
+  endInp.addEventListener('input', apply);
+  pop.querySelector('#adj-reset').onclick = (ev) => {
+    ev.stopPropagation();
+    setOverride(dk, pid, null);
+    startInp.value = pat.start;
+    endInp.value = pat.end;
+    updateHoursDisplay();
+    render();
+  };
+  pop.querySelector('#adj-close').onclick = (ev) => {
+    ev.stopPropagation();
+    pop.hidden = true;
+  };
+}
+
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('pattern-popover');
+  if (pop.hidden) return;
+  if (!pop.contains(e.target)) pop.hidden = true;
+});
+
+// === Settings dialog ===
+function openSettings() {
+  renderMembersList();
+  renderPatternsTable();
+  renderSlotsTable();
+  renderWeekdayTable();
+  renderHolidaysList();
+  document.getElementById('min-weekly-rest').value = state.settings.minWeeklyRest;
+  document.getElementById('part-weekly-limit').value = partWeeklyLimit();
+  document.getElementById('fetch-status').textContent = '';
+  document.getElementById('settings-dialog').showModal();
+}
+
+function fillCountInfo(i) {
+  const w = state.settings.weekdays[i];
+  if (!w || w.closed) return { text: '', warn: false };
+  const sl = w.slots || {};
+  const earlyLate = (sl.earlyCount || 0) + (sl.lateCount || 0);
+  const expected = Math.max(0, (w.required || 0) - earlyLate);
+  const fills = sl.fills || [];
+  const fillSum = fills.reduce((s, f) => s + (f.count || 0), 0);
+  if (fillSum < expected) return { text: `必要${expected}人 / 設定${fillSum}人 ⚠不足${expected - fillSum}`, warn: true };
+  if (fillSum > expected) return { text: `必要${expected}人 / 設定${fillSum}人 ⚠超過${fillSum - expected}`, warn: true };
+  return { text: `必要${expected}人 / 設定${fillSum}人 ✓`, warn: false };
+}
+function updateAllFillCounts() {
+  const tbl = document.getElementById('slots-table');
+  if (!tbl) return;
+  for (let i = 0; i < 7; i++) {
+    const span = tbl.querySelector(`.fill-count[data-wd="${i}"]`);
+    if (!span) continue;
+    const info = fillCountInfo(i);
+    span.textContent = info.text;
+    span.style.color = info.warn ? '#c0392b' : '#060';
+  }
+}
+
+function renderSlotsTable() {
+  const tbl = document.getElementById('slots-table');
+  const patternOption = (selectedId) => {
+    let opts = `<option value="">— なし —</option>`;
+    for (const p of state.settings.shiftPatterns) {
+      const sel = selectedId === p.id ? 'selected' : '';
+      opts += `<option value="${p.id}" ${sel}>${escapeHtml(p.name)}</option>`;
+    }
+    return opts;
+  };
+  const altOption = (selectedId) => {
+    let opts = `<option value="">代替なし</option>`;
+    for (const p of state.settings.shiftPatterns) {
+      const sel = selectedId === p.id ? 'selected' : '';
+      opts += `<option value="${p.id}" ${sel}>↻ ${escapeHtml(p.name)}</option>`;
+    }
+    return opts;
+  };
+  let html = '<thead><tr><th>曜日</th><th>早出</th><th>早出数</th><th>遅出</th><th>遅出数</th><th>残り（パターン × 人数、複数可）</th></tr></thead><tbody>';
+  for (let i = 0; i < 7; i++) {
+    const wd = state.settings.weekdays[i];
+    if (wd.closed) {
+      html += `<tr><td>${WD[i]}</td><td colspan="5" style="color:#999;">閉局</td></tr>`;
+      continue;
+    }
+    const sl = wd.slots || {};
+    const fills = sl.fills || [];
+    const info = fillCountInfo(i);
+    const fillRowsHtml = fills.map((f, idx) => `
+      <div class="fill-row" style="display:flex;gap:3px;align-items:center;margin-bottom:3px;">
+        <select data-wd="${i}" data-fidx="${idx}" data-fill-field="patternId" style="font-size:11px;flex:1;min-width:90px;">${patternOption(f.patternId)}</select>
+        <span style="font-size:10px;color:#888;">×</span>
+        <input type="number" data-wd="${i}" data-fidx="${idx}" data-fill-field="count" min="0" step="1" value="${f.count || 0}" style="width:36px;font-size:11px;text-align:right;">
+        <span style="font-size:10px;color:#666;">人</span>
+        <select data-wd="${i}" data-fidx="${idx}" data-fill-field="alt" style="font-size:10px;width:90px;" title="代替パターン (日付の偶奇でローテ)">${altOption(f.alt)}</select>
+        <button class="del-fill-row danger" data-wd="${i}" data-fidx="${idx}" style="font-size:11px;padding:0 5px;">×</button>
+      </div>`).join('');
+    html += `<tr>
+      <td><b>${WD[i]}</b><br><small style="color:#666;">必要${wd.required}人</small></td>
+      <td><select data-wd="${i}" data-field="earlyPatternId">${patternOption(sl.earlyPatternId)}</select></td>
+      <td><input type="number" data-wd="${i}" data-field="earlyCount" min="0" step="1" value="${sl.earlyCount || 0}" style="width:50px;"></td>
+      <td><select data-wd="${i}" data-field="latePatternId">${patternOption(sl.latePatternId)}</select></td>
+      <td><input type="number" data-wd="${i}" data-field="lateCount" min="0" step="1" value="${sl.lateCount || 0}" style="width:50px;"></td>
+      <td>
+        ${fillRowsHtml || '<div style="color:#999;font-size:11px;">残り設定なし</div>'}
+        <button class="add-fill-row" data-wd="${i}" style="font-size:11px;padding:2px 8px;margin-top:2px;">+ パターン追加</button>
+        <div class="fill-count" data-wd="${i}" style="margin-top:3px;font-size:11px;font-weight:bold;color:${info.warn?'#c0392b':'#060'};">${info.text}</div>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+
+  // 早出/遅出のハンドラ
+  tbl.querySelectorAll('select[data-field], input[data-field]').forEach(el => {
+    const handler = () => {
+      const wd = el.dataset.wd;
+      const field = el.dataset.field;
+      if (!state.settings.weekdays[wd].slots) {
+        state.settings.weekdays[wd].slots = {
+          earlyPatternId: null, earlyCount: 0,
+          latePatternId: null, lateCount: 0,
+          fills: []
+        };
+      }
+      const sl = state.settings.weekdays[wd].slots;
+      if (field.endsWith('PatternId')) sl[field] = el.value || null;
+      else sl[field] = Math.max(0, parseInt(el.value) || 0);
+      saveState();
+      if (field === 'earlyCount' || field === 'lateCount') updateAllFillCounts();
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  });
+
+  // fills 行のハンドラ
+  tbl.querySelectorAll('select[data-fill-field], input[data-fill-field]').forEach(el => {
+    const handler = () => {
+      const wd = el.dataset.wd;
+      const fidx = parseInt(el.dataset.fidx);
+      const field = el.dataset.fillField;
+      const sl = state.settings.weekdays[wd].slots;
+      if (!sl || !sl.fills || !sl.fills[fidx]) return;
+      if (field === 'count') sl.fills[fidx].count = Math.max(0, parseInt(el.value) || 0);
+      else sl.fills[fidx][field] = el.value || null;
+      saveState();
+      updateAllFillCounts();
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  });
+
+  // 削除ボタン
+  tbl.querySelectorAll('.del-fill-row').forEach(b => {
+    b.onclick = () => {
+      const wd = b.dataset.wd;
+      const fidx = parseInt(b.dataset.fidx);
+      const sl = state.settings.weekdays[wd].slots;
+      if (!sl || !sl.fills) return;
+      sl.fills.splice(fidx, 1);
+      saveState();
+      renderSlotsTable();
+    };
+  });
+
+  // 追加ボタン
+  tbl.querySelectorAll('.add-fill-row').forEach(b => {
+    b.onclick = () => {
+      const wd = b.dataset.wd;
+      const sl = state.settings.weekdays[wd].slots;
+      if (!sl) return;
+      if (!sl.fills) sl.fills = [];
+      sl.fills.push({ patternId: null, count: 1, alt: null });
+      saveState();
+      renderSlotsTable();
+    };
+  });
+}
+
+function renderMembersList() {
+  document.getElementById('people-count').textContent = `（現在 ${state.people.length} 人）`;
+  const ul = document.getElementById('members-list');
+  const types = Object.keys(state.settings.personTypes);
+  const total = state.people.length;
+  ul.innerHTML = state.people.map((p, i) =>
+    `<li>
+      <span style="width:24px;color:#888;">${i+1}.</span>
+      <button class="move-up" data-id="${p.id}" title="上へ" style="padding:1px 6px;font-size:11px;" ${i===0?'disabled':''}>▲</button>
+      <button class="move-down" data-id="${p.id}" title="下へ" style="padding:1px 6px;font-size:11px;" ${i===total-1?'disabled':''}>▼</button>
+      <input type="text" data-id="${p.id}" data-field="name" value="${escapeHtml(p.name)}">
+      <select data-id="${p.id}" data-field="type">
+        ${types.map(t => `<option value="${escapeHtml(t)}" ${p.type===t?'selected':''}>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <button class="danger del-p" data-id="${p.id}">× 削除</button>
+    </li>`
+  ).join('');
+  ul.querySelectorAll('.move-up').forEach(b => {
+    b.onclick = () => {
+      const idx = state.people.findIndex(p => p.id === b.dataset.id);
+      if (idx > 0) {
+        [state.people[idx-1], state.people[idx]] = [state.people[idx], state.people[idx-1]];
+        saveState(); renderMembersList(); render();
+      }
+    };
+  });
+  ul.querySelectorAll('.move-down').forEach(b => {
+    b.onclick = () => {
+      const idx = state.people.findIndex(p => p.id === b.dataset.id);
+      if (idx >= 0 && idx < state.people.length - 1) {
+        [state.people[idx], state.people[idx+1]] = [state.people[idx+1], state.people[idx]];
+        saveState(); renderMembersList(); render();
+      }
+    };
+  });
+  ul.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('input', () => {
+      const p = state.people.find(x => x.id === el.dataset.id);
+      if (!p) return;
+      if (el.dataset.field === 'name') p.name = el.value;
+      else if (el.dataset.field === 'type') p.type = el.value;
+      saveState(); render();
+    });
+    el.addEventListener('change', () => {
+      const p = state.people.find(x => x.id === el.dataset.id);
+      if (!p) return;
+      if (el.dataset.field === 'type') { p.type = el.value; saveState(); render(); }
+    });
+  });
+  ul.querySelectorAll('.del-p').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const p = state.people.find(x => x.id === id);
+      const hasData = Object.values(state.cycles).some(c =>
+        Object.values(c).some(day => day[id] !== undefined)
+      );
+      const msg = hasData
+        ? `${p.name} を削除します。この人の入力データも全周期から消えます。本当に削除しますか?`
+        : `${p.name} を削除します。よろしいですか?`;
+      if (!confirm(msg)) return;
+      state.people = state.people.filter(x => x.id !== id);
+      for (const cyc of Object.keys(state.cycles)) {
+        for (const dk of Object.keys(state.cycles[cyc])) {
+          delete state.cycles[cyc][dk][id];
+          if (Object.keys(state.cycles[cyc][dk]).length === 0) delete state.cycles[cyc][dk];
+        }
+      }
+      saveState(); renderMembersList(); render();
+    };
+  });
+}
+
+document.getElementById('add-member-btn').onclick = () => {
+  const inp = document.getElementById('new-member-name');
+  const name = inp.value.trim() || `新メンバー${state.people.length + 1}`;
+  const ids = state.people.map(p => parseInt(p.id.replace(/\D/g, '')) || 0);
+  const newId = 'p' + (Math.max(0, ...ids) + 1);
+  state.people.push({ id: newId, name, type: '正社員' });
+  saveState(); inp.value = ''; renderMembersList(); render();
+};
+
+document.getElementById('add-helper-btn').onclick = () => {
+  const helperCount = state.people.filter(p => p.type === 'ヘルプ').length;
+  const ids = state.people.map(p => parseInt(p.id.replace(/\D/g, '')) || 0);
+  const newId = 'h' + (Math.max(0, ...ids) + 1);
+  const inp = document.getElementById('new-member-name');
+  const name = inp.value.trim() || `ヘルプ要員${helperCount + 1}`;
+  state.people.push({ id: newId, name, type: 'ヘルプ' });
+  saveState(); inp.value = ''; renderMembersList(); render();
+};
+
+document.getElementById('part-weekly-limit').addEventListener('input', (e) => {
+  const v = Math.max(0, parseFloat(e.target.value) || 0);
+  if (!state.settings.personTypes['パート']) state.settings.personTypes['パート'] = { kind: 'weekly', limitHours: 32 };
+  state.settings.personTypes['パート'].limitHours = v;
+  saveState(); render();
+});
+
+function renderPatternsTable() {
+  const tbl = document.getElementById('patterns-table');
+  const total = state.settings.shiftPatterns.length;
+  let html = '<thead><tr><th title="ドラッグで並び替え">⇅</th><th>名前</th><th>開始</th><th>終了</th><th>休憩(分)</th><th>計算h</th><th>色</th><th></th></tr></thead><tbody>';
+  state.settings.shiftPatterns.forEach((p, i) => {
+    html += `<tr data-id="${p.id}">
+      <td class="drag-handle" draggable="true" title="ドラッグして並び替え">⋮⋮</td>
+      <td><input type="text" data-id="${p.id}" data-field="name" value="${escapeHtml(p.name)}"></td>
+      <td><input type="text" class="time-input" inputmode="numeric" maxlength="5" placeholder="HH:MM" data-id="${p.id}" data-field="start" value="${p.start}"></td>
+      <td><input type="text" class="time-input" inputmode="numeric" maxlength="5" placeholder="HH:MM" data-id="${p.id}" data-field="end" value="${p.end}"></td>
+      <td><input type="number" data-id="${p.id}" data-field="breakMin" min="0" step="15" value="${p.breakMin || 0}"></td>
+      <td class="pat-hours" data-id="${p.id}">${patternHours(p).toFixed(1)}h</td>
+      <td><input type="color" data-id="${p.id}" data-field="color" value="${p.color || '#ffffff'}"></td>
+      <td><button class="del-pat danger" data-id="${p.id}">×</button></td>
+    </tr>`;
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('input.time-input').forEach(inp => attachTimeInput(inp));
+  tbl.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const id = inp.dataset.id;
+      const field = inp.dataset.field;
+      const pat = state.settings.shiftPatterns.find(x => x.id === id);
+      if (!pat) return;
+      if (field === 'breakMin') pat[field] = Math.max(0, parseInt(inp.value) || 0);
+      else pat[field] = inp.value;
+      saveState();
+      // 計算hセルだけピンポイント更新（テーブル全体は再描画しない）
+      const cell = tbl.querySelector(`.pat-hours[data-id="${id}"]`);
+      if (cell) cell.textContent = patternHours(pat).toFixed(1) + 'h';
+    });
+    // フォーカスが外れたタイミング(=変換確定後)にだけグリッドとスロット表を更新
+    inp.addEventListener('change', () => {
+      renderSlotsTable();
+      render();
+    });
+  });
+  // ドラッグ&ドロップで並び替え
+  let draggedPatId = null;
+  tbl.querySelectorAll('.drag-handle').forEach(handle => {
+    handle.addEventListener('dragstart', (e) => {
+      const tr = handle.closest('tr');
+      draggedPatId = tr.dataset.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', draggedPatId);
+      tr.classList.add('dragging');
+    });
+    handle.addEventListener('dragend', () => {
+      tbl.querySelectorAll('tbody tr').forEach(r => {
+        r.classList.remove('dragging');
+        r.classList.remove('drag-over');
+      });
+      draggedPatId = null;
+    });
+  });
+  tbl.querySelectorAll('tbody tr').forEach(tr => {
+    tr.addEventListener('dragover', (e) => {
+      if (!draggedPatId || tr.dataset.id === draggedPatId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      tr.classList.add('drag-over');
+    });
+    tr.addEventListener('dragleave', () => {
+      tr.classList.remove('drag-over');
+    });
+    tr.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tr.classList.remove('drag-over');
+      const targetId = tr.dataset.id;
+      if (!draggedPatId || !targetId || draggedPatId === targetId) return;
+      const arr = state.settings.shiftPatterns;
+      const fromIdx = arr.findIndex(x => x.id === draggedPatId);
+      const toIdx = arr.findIndex(x => x.id === targetId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = arr.splice(fromIdx, 1);
+      // ドラッグ方向に応じて挿入位置を決定 (上から下なら toIdx の後ろ、下から上なら toIdx の前)
+      const insertAt = fromIdx < toIdx ? toIdx : toIdx;
+      arr.splice(insertAt, 0, moved);
+      saveState();
+      renderPatternsTable();
+      renderSlotsTable();
+      render();
+    });
+  });
+  tbl.querySelectorAll('.del-pat').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.id;
+      const pat = state.settings.shiftPatterns.find(x => x.id === id);
+      if (!confirm(`「${pat.name}」を削除します。このパターンが割り当て済のセルは「出(時間未定)」になります。よろしいですか?`)) return;
+      state.settings.shiftPatterns = state.settings.shiftPatterns.filter(x => x.id !== id);
+      // Replace `work:id` with `work` in all cycles
+      for (const cyc of Object.keys(state.cycles)) {
+        for (const dk of Object.keys(state.cycles[cyc])) {
+          for (const pid of Object.keys(state.cycles[cyc][dk])) {
+            if (state.cycles[cyc][dk][pid] === `work:${id}`) state.cycles[cyc][dk][pid] = 'work';
+          }
+        }
+      }
+      saveState(); renderPatternsTable(); render();
+    };
+  });
+}
+
+document.getElementById('add-pattern-btn').onclick = () => {
+  const ids = state.settings.shiftPatterns.map(p => p.id);
+  let n = 1; while (ids.includes(`pat${n}`)) n++;
+  state.settings.shiftPatterns.push({
+    id: `pat${n}`, name: `新パターン${n}`, start: '09:00', end: '18:00', breakMin: 60, color: '#e0e0e0'
+  });
+  saveState(); renderPatternsTable(); render();
+};
+
+function renderWeekdayTable() {
+  const tbl = document.getElementById('weekday-table');
+  let html = '<thead><tr><th>曜日</th><th>営業</th><th>必要人数</th><th>休み価値</th></tr></thead><tbody>';
+  for (let i = 0; i < 7; i++) {
+    const w = state.settings.weekdays[i];
+    html += `<tr>
+      <td>${WD[i]}</td>
+      <td><input type="checkbox" data-wd="${i}" data-field="open" ${w.closed ? '' : 'checked'}></td>
+      <td><input type="number" data-wd="${i}" data-field="required" min="0" step="1" value="${w.required}" ${w.closed?'disabled':''}></td>
+      <td><input type="number" data-wd="${i}" data-field="offValue" min="0" step="0.5" max="1" value="${w.offValue}" ${w.closed?'disabled':''}></td>
+    </tr>`;
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const wd = inp.dataset.wd;
+      const field = inp.dataset.field;
+      const w = state.settings.weekdays[wd];
+      let needsRerender = false;
+      let updateFill = false;
+      if (field === 'open') { w.closed = !inp.checked; needsRerender = true; }
+      else if (field === 'required') { w.required = Math.max(0, parseInt(inp.value) || 0); updateFill = true; }
+      else if (field === 'offValue') w.offValue = Math.max(0, Math.min(1, parseFloat(inp.value) || 0));
+      saveState();
+      if (needsRerender) { renderWeekdayTable(); renderSlotsTable(); }
+      else if (updateFill) renderSlotsTable(); // 別テーブルなので focus 喪失なし
+      render();
+    });
+  });
+}
+
+document.getElementById('min-weekly-rest').addEventListener('input', (e) => {
+  state.settings.minWeeklyRest = Math.max(0, parseFloat(e.target.value) || 0);
+  saveState(); render();
+});
+
+function renderHolidaysList() {
+  const { start, end } = cycleRange(state.currentCycle);
+  const list = Object.keys(state.holidays).filter(k => {
+    const [y,m,d] = k.split('-').map(Number);
+    const dt = new Date(y, m-1, d);
+    return dt >= start && dt <= end;
+  }).sort();
+  const ul = document.getElementById('holidays-list');
+  if (list.length === 0) {
+    ul.innerHTML = '<li style="color:#999;">この周期に祝日なし</li>';
+  } else {
+    ul.innerHTML = list.map(k =>
+      `<li><span>${k} (${escapeHtml(state.holidays[k])})</span><button class="del-h" data-k="${k}">× 削除</button></li>`
+    ).join('');
+    ul.querySelectorAll('.del-h').forEach(b => {
+      b.onclick = () => {
+        delete state.holidays[b.dataset.k];
+        saveState(); renderHolidaysList(); render();
+      };
+    });
+  }
+}
+document.getElementById('add-holiday-btn').onclick = () => {
+  const inp = document.getElementById('new-holiday');
+  const nameInp = document.getElementById('new-holiday-name');
+  if (!inp.value) return;
+  state.holidays[inp.value] = nameInp.value.trim() || '祝日';
+  saveState(); renderHolidaysList(); render();
+  inp.value = ''; nameInp.value = '';
+};
+
+async function fetchHolidays(showStatus) {
+  const status = showStatus ? document.getElementById('fetch-status') : null;
+  if (status) { status.textContent = '取得中...'; status.style.color = '#666'; }
+  try {
+    const res = await fetch(HOLIDAYS_API, { mode: 'cors' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    let added = 0;
+    for (const [k, name] of Object.entries(data)) {
+      if (!state.holidays[k]) added++;
+      state.holidays[k] = name;
+    }
+    state.holidaysFetchedAt = Date.now();
+    saveState();
+    if (status) {
+      status.textContent = `✅ ${Object.keys(data).length}件取得 (${added}件追加)`;
+      status.style.color = '#060';
+      renderHolidaysList();
+    }
+    render();
+    return true;
+  } catch (err) {
+    if (status) {
+      status.textContent = `⚠ 取得失敗: ${err.message}`;
+      status.style.color = '#c00';
+    }
+    console.warn('Holiday fetch failed:', err);
+    return false;
+  }
+}
+document.getElementById('fetch-holidays-btn').onclick = () => fetchHolidays(true);
+
+const HOLIDAY_FETCH_INTERVAL = 7 * 24 * 60 * 60 * 1000;
+function maybeAutoFetchHolidays() {
+  const age = Date.now() - (state.holidaysFetchedAt || 0);
+  if (age > HOLIDAY_FETCH_INTERVAL) fetchHolidays(false);
+}
+
+document.getElementById('reset-btn').onclick = () => {
+  if (!confirm('曜日設定・週休最小値・シフトパターン・自動割当ルール・パート週上限を初期値に戻します。メンバー・希望休・祝日は維持されます。よろしいですか?')) return;
+  state.settings.weekdays = defaultWeekdaySettings();
+  state.settings.minWeeklyRest = 1.0;
+  state.settings.shiftPatterns = defaultShiftPatterns();
+  state.settings.personTypes = defaultPersonTypes();
+  saveState();
+  renderWeekdayTable();
+  renderPatternsTable();
+  renderSlotsTable();
+  document.getElementById('min-weekly-rest').value = 1.0;
+  document.getElementById('part-weekly-limit').value = partWeeklyLimit();
+  render();
+};
+
+document.getElementById('settings-btn').onclick = openSettings;
+document.getElementById('settings-close').onclick = () => {
+  document.getElementById('settings-dialog').close(); render();
+};
+
+function hidePopover() { document.getElementById('pattern-popover').hidden = true; }
+document.getElementById('mode-rest').onclick = () => { hidePopover(); state.uiMode = 'rest'; saveState(); render(); };
+document.getElementById('mode-time').onclick = () => { hidePopover(); state.uiMode = 'time'; saveState(); render(); };
+document.getElementById('mode-adjust').onclick = () => { hidePopover(); state.uiMode = 'adjust'; saveState(); render(); };
+document.getElementById('lock-edit-btn').onclick = () => { hidePopover(); state.lockEditMode = !state.lockEditMode; saveState(); render(); };
+
+// === 全クリア (現在の周期のシフトデータを白紙に) ===
+document.getElementById('clear-cycle-btn').onclick = () => {
+  hidePopover();
+  const c = state.currentCycle;
+  const cellCount = state.cycles[c] ? Object.values(state.cycles[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
+  const overrideCount = state.timeOverrides && state.timeOverrides[c] ? Object.values(state.timeOverrides[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
+  const lockCount = state.locks && state.locks[c] ? Object.values(state.locks[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
+  const msg = `⚠ 現在の周期 (${c}) のシフトデータを全て白紙に戻します。
+
+【消去されるもの】
+・休 / 出 / ヘ / ヘルプ要員 の状態 (${cellCount} セル)
+・パターン割当・時間設定 (${overrideCount} 件の時間調整)
+・ロック状態 (${lockCount} 件)
+
+【保持されるもの】
+・メンバー一覧
+・各種設定 (パターン定義、曜日ルール、祝日)
+・スナップショット (バックアップ)
+・他の周期のデータ
+
+⚠ この操作は元に戻せません。
+不安な場合は先に 📷 スナップショットで保存してください。
+
+本当に白紙に戻しますか?`;
+  if (!confirm(msg)) return;
+  // 二重確認 (誤クリック防止)
+  if (!confirm(`もう一度確認: ${c} のシフトを完全消去します。よろしいですか?`)) return;
+  delete state.cycles[c];
+  if (state.timeOverrides) delete state.timeOverrides[c];
+  if (state.locks) delete state.locks[c];
+  saveState();
+  render();
+};
+
+// === スナップショット ===
+function snapshotCurrentCycle(name) {
+  const c = state.currentCycle;
+  return {
+    id: 'snap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    name: name || `${c} (${new Date().toLocaleString('ja-JP')})`,
+    cycle: c,
+    timestamp: Date.now(),
+    cells: JSON.parse(JSON.stringify(state.cycles[c] || {})),
+    timeOverrides: JSON.parse(JSON.stringify(state.timeOverrides?.[c] || {})),
+    locks: JSON.parse(JSON.stringify(state.locks?.[c] || {}))
+  };
+}
+function restoreSnapshot(snap) {
+  const c = snap.cycle;
+  state.cycles[c] = JSON.parse(JSON.stringify(snap.cells || {}));
+  if (!state.timeOverrides) state.timeOverrides = {};
+  state.timeOverrides[c] = JSON.parse(JSON.stringify(snap.timeOverrides || {}));
+  if (!state.locks) state.locks = {};
+  state.locks[c] = JSON.parse(JSON.stringify(snap.locks || {}));
+  state.currentCycle = c;
+  saveState();
+  render();
+}
+function renderSnapshotList() {
+  const ul = document.getElementById('snapshot-list');
+  if (!state.snapshots || state.snapshots.length === 0) {
+    ul.innerHTML = '<li style="color:#999;padding:8px;">まだスナップショットはありません</li>';
+    return;
+  }
+  const sorted = [...state.snapshots].sort((a, b) => b.timestamp - a.timestamp);
+  ul.innerHTML = sorted.map(s => {
+    const date = new Date(s.timestamp).toLocaleString('ja-JP');
+    return `<li style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid #eee;gap:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:bold;font-size:13px;">${escapeHtml(s.name)}</div>
+        <div style="font-size:11px;color:#888;">${s.cycle} 周期 · ${date}</div>
+      </div>
+      <button class="snap-restore primary" data-id="${s.id}" style="font-size:11px;">復元</button>
+      <button class="snap-delete danger" data-id="${s.id}" style="font-size:11px;">削除</button>
+    </li>`;
+  }).join('');
+  ul.querySelectorAll('.snap-restore').forEach(b => {
+    b.onclick = () => {
+      const s = state.snapshots.find(x => x.id === b.dataset.id);
+      if (!s) return;
+      if (!confirm(`「${s.name}」を復元します。\n現在の周期 ${s.cycle} のシフトデータを上書きします。よろしいですか?`)) return;
+      restoreSnapshot(s);
+      renderSnapshotList();
+    };
+  });
+  ul.querySelectorAll('.snap-delete').forEach(b => {
+    b.onclick = () => {
+      const s = state.snapshots.find(x => x.id === b.dataset.id);
+      if (!s) return;
+      if (!confirm(`「${s.name}」を削除しますか?`)) return;
+      state.snapshots = state.snapshots.filter(x => x.id !== b.dataset.id);
+      saveState();
+      renderSnapshotList();
+    };
+  });
+}
+document.getElementById('snapshot-btn').onclick = () => {
+  hidePopover();
+  document.getElementById('snapshot-name').value = '';
+  renderSnapshotList();
+  document.getElementById('snapshot-dialog').showModal();
+};
+document.getElementById('snapshot-save-btn').onclick = () => {
+  const name = document.getElementById('snapshot-name').value.trim();
+  const snap = snapshotCurrentCycle(name);
+  if (!state.snapshots) state.snapshots = [];
+  state.snapshots.push(snap);
+  saveState();
+  document.getElementById('snapshot-name').value = '';
+  renderSnapshotList();
+};
+document.getElementById('snapshot-close').onclick = () => {
+  document.getElementById('snapshot-dialog').close();
+};
+
+// === 自動割り当てヘルパー（前日参照用） ===
+function previousDateInfo(dk) {
+  const [y, m, d] = dk.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  dt.setDate(dt.getDate() - 1);
+  return { d: dt, dk: dateKey(dt) };
+}
+function wasOffOrClosed(pid, baseDk) {
+  const p = previousDateInfo(baseDk);
+  if (isClosed(p.d, p.dk)) return true;
+  return isOff(getCell(state.currentCycle, p.dk, pid));
+}
+function wasPattern(pid, baseDk, patId) {
+  const p = previousDateInfo(baseDk);
+  if (isClosed(p.d, p.dk)) return false;
+  const v = getCell(state.currentCycle, p.dk, pid);
+  return isWork(v) && patternIdOf(v) === patId;
+}
+
+// === 自動割り当て ===
+function autoAssign() {
+  const msg = `時間決めの自動割り当てを実行します。
+
+・現在の時間設定（パターン割当）と最終調整は上書きされます
+・「絶対休み(休)」は維持されます
+・公平性が最優先（各人の早出/遅出回数を均一化）
+・前日ルール（遅→翌日早 / 休→翌日遅）は同回数の時のタイブレーカー
+・人員が余った日は「出(時間未定)」のまま残ります（手動調整してください）
+
+実行しますか?`;
+  if (!confirm(msg)) return;
+
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+  const patById = {};
+  for (const p of state.settings.shiftPatterns) patById[p.id] = p;
+
+  // 全曜日のスロットから「早出役」「遅出役」のパターンID集合を作る
+  const earlyRoleIds = new Set();
+  const lateRoleIds = new Set();
+  for (let i = 0; i < 7; i++) {
+    const sl = state.settings.weekdays[i] && state.settings.weekdays[i].slots;
+    if (!sl) continue;
+    if (sl.earlyPatternId) earlyRoleIds.add(sl.earlyPatternId);
+    if (sl.latePatternId) lateRoleIds.add(sl.latePatternId);
+  }
+
+  // 時間オーバーライドをクリア (ロック済みセルの分は維持)
+  if (state.timeOverrides && state.timeOverrides[state.currentCycle]) {
+    const cycleOverrides = state.timeOverrides[state.currentCycle];
+    for (const dkKey of Object.keys(cycleOverrides)) {
+      for (const pidKey of Object.keys(cycleOverrides[dkKey])) {
+        if (!isCellLocked(dkKey, pidKey)) {
+          delete cycleOverrides[dkKey][pidKey];
+        }
+      }
+      if (Object.keys(cycleOverrides[dkKey]).length === 0) {
+        delete cycleOverrides[dkKey];
+      }
+    }
+    if (Object.keys(cycleOverrides).length === 0) {
+      delete state.timeOverrides[state.currentCycle];
+    }
+  }
+
+  // カウンタ初期化
+  const cnt = {};
+  for (const p of state.people) {
+    cnt[p.id] = { earlyRole: 0, lateRole: 0, fill: {} };
+  }
+  const pairKey = (a, b) => [a, b].sort().join('|');
+  const pairCnt = {};
+
+  function wasAnyLateRole(pid, dk) {
+    const prev = previousDateInfo(dk);
+    if (isClosed(prev.d, prev.dk)) return false;
+    const v = getCell(state.currentCycle, prev.dk, pid);
+    if (!isWork(v)) return false;
+    const id = patternIdOf(v);
+    return id && lateRoleIds.has(id);
+  }
+
+  for (const d of dates) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) continue;
+    const wd = d.getDay();
+    const req = effectiveRequired(d, dk);
+    if (req === 0) continue;
+    const sl = state.settings.weekdays[wd] && state.settings.weekdays[wd].slots;
+    if (!sl) continue;
+
+    const assignedIds = new Set();
+    const lockedPatternCount = {}; // patternId -> count of locked cells using it
+    let lockedLateMembers = [];
+
+    // ロック済みセルを「割当済み」扱いにし、cnt にも反映
+    for (const p of state.people) {
+      if (isHelperPerson(p)) continue;
+      if (!isCellLocked(dk, p.id)) continue;
+      const v = getCell(state.currentCycle, dk, p.id);
+      if (isOff(v) || isHelp(v)) continue; // off/help は割当対象外なのでカウントだけ無視
+      if (isWork(v)) {
+        assignedIds.add(p.id);
+        const id = patternIdOf(v);
+        if (id) {
+          lockedPatternCount[id] = (lockedPatternCount[id] || 0) + 1;
+          if ((sl.earlyPatternId && id === sl.earlyPatternId) || earlyRoleIds.has(id)) cnt[p.id].earlyRole++;
+          if ((sl.latePatternId && id === sl.latePatternId) || lateRoleIds.has(id)) {
+            cnt[p.id].lateRole++;
+            lockedLateMembers.push(p);
+          }
+          cnt[p.id].fill[id] = (cnt[p.id].fill[id] || 0) + 1;
+        }
+      }
+    }
+    // ロック済み遅出が2人いたらペアカウントに反映 (ペア多様化に効く)
+    if (lockedLateMembers.length === 2) {
+      const k = pairKey(lockedLateMembers[0].id, lockedLateMembers[1].id);
+      pairCnt[k] = (pairCnt[k] || 0) + 1;
+    }
+
+    // 利用可能 = 正社員/パートのうち「休」「他店ヘルプ」「有給」「ロック」以外
+    const avail = state.people.filter(p => {
+      if (isHelperPerson(p)) return false;
+      if (isCellLocked(dk, p.id)) return false; // ロックされている = 既に処理済み
+      const v = getCell(state.currentCycle, dk, p.id);
+      return !isOff(v) && !isHelp(v) && !isPaid(v);
+    });
+    if (avail.length === 0) continue;
+
+    // 1. 早出 (ロック済みの早出分を引く)
+    const earlyId = sl.earlyPatternId;
+    const earlyLockedCount = earlyId ? (lockedPatternCount[earlyId] || 0) : 0;
+    const earlyNeed = earlyId ? Math.max(0, Math.min((sl.earlyCount || 0) - earlyLockedCount, req - assignedIds.size, avail.length)) : 0;
+    if (earlyNeed > 0 && patById[earlyId]) {
+      const sorted = [...avail].sort((a, b) => {
+        const sa = cnt[a.id].earlyRole * 100 + (wasAnyLateRole(a.id, dk) ? -10 : 0) + Math.random();
+        const sb = cnt[b.id].earlyRole * 100 + (wasAnyLateRole(b.id, dk) ? -10 : 0) + Math.random();
+        return sa - sb;
+      });
+      sorted.slice(0, earlyNeed).forEach(p => {
+        setCell(state.currentCycle, dk, p.id, `work:${earlyId}`);
+        cnt[p.id].earlyRole++;
+        assignedIds.add(p.id);
+      });
+    }
+
+    // 2. 遅出 (ロック済みの遅出分を引く)
+    const lateId = sl.latePatternId;
+    const lateLockedCount = lateId ? (lockedPatternCount[lateId] || 0) : 0;
+    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, avail.length)) : 0;
+    if (lateNeed > 0 && patById[lateId]) {
+      const lateAvail = avail.filter(p => !assignedIds.has(p.id));
+      if (lateNeed === 1) {
+        const sorted = [...lateAvail].sort((a, b) => {
+          const sa = cnt[a.id].lateRole * 100 + (wasOffOrClosed(a.id, dk) ? -10 : 0) + Math.random();
+          const sb = cnt[b.id].lateRole * 100 + (wasOffOrClosed(b.id, dk) ? -10 : 0) + Math.random();
+          return sa - sb;
+        });
+        if (sorted[0]) {
+          setCell(state.currentCycle, dk, sorted[0].id, `work:${lateId}`);
+          cnt[sorted[0].id].lateRole++;
+          assignedIds.add(sorted[0].id);
+        }
+      } else if (lateAvail.length >= 2) {
+        // ペア選定: 公平性最優先 + ペア多様化 + 前日休みボーナス
+        const sorted = [...lateAvail].sort((a, b) => cnt[a.id].lateRole - cnt[b.id].lateRole);
+        const top = sorted.slice(0, Math.min(lateAvail.length, Math.max(4, lateNeed + 2)));
+        let bestPair = null, bestScore = Infinity;
+        for (let i = 0; i < top.length; i++) {
+          for (let j = i+1; j < top.length; j++) {
+            const a = top[i], b = top[j];
+            const ic = cnt[a.id].lateRole + cnt[b.id].lateRole;
+            const pc = pairCnt[pairKey(a.id, b.id)] || 0;
+            const offBonus = (wasOffOrClosed(a.id, dk) ? -10 : 0) + (wasOffOrClosed(b.id, dk) ? -10 : 0);
+            const score = ic * 1000 + pc * 30 + offBonus + Math.random() * 10;
+            if (score < bestScore) { bestScore = score; bestPair = [a, b]; }
+          }
+        }
+        if (bestPair) {
+          bestPair.forEach(p => {
+            setCell(state.currentCycle, dk, p.id, `work:${lateId}`);
+            cnt[p.id].lateRole++;
+            assignedIds.add(p.id);
+          });
+          const k = pairKey(bestPair[0].id, bestPair[1].id);
+          pairCnt[k] = (pairCnt[k] || 0) + 1;
+        }
+        // lateNeed > 2 の場合の追加割当（公平性のみ）
+        if (lateNeed > 2) {
+          const stillNeed = lateNeed - 2;
+          const rest = avail.filter(p => !assignedIds.has(p.id));
+          const sortedRest = [...rest].sort((a, b) => cnt[a.id].lateRole - cnt[b.id].lateRole);
+          sortedRest.slice(0, stillNeed).forEach(p => {
+            setCell(state.currentCycle, dk, p.id, `work:${lateId}`);
+            cnt[p.id].lateRole++;
+            assignedIds.add(p.id);
+          });
+        }
+      } else if (lateAvail.length === 1) {
+        // 1人しか残ってないが lateNeed === 2 のような場合、可能な分だけ
+        const p = lateAvail[0];
+        setCell(state.currentCycle, dk, p.id, `work:${lateId}`);
+        cnt[p.id].lateRole++;
+        assignedIds.add(p.id);
+      }
+    }
+
+    // 3. 残り (fills 配列を順に処理、ロック済みの該当パターンを引く)
+    const fills = sl.fills || [];
+    for (const fill of fills) {
+      const remainSlots = req - assignedIds.size;
+      if (remainSlots <= 0) break;
+      // ローテ判定: alt があれば日付の偶奇で切替
+      let pid = fill.patternId;
+      if (fill.alt && patById[fill.alt] && d.getDate() % 2 === 0) pid = fill.alt;
+      if (!pid || !patById[pid]) continue;
+      const lockedFillCount = lockedPatternCount[pid] || 0;
+      const need = Math.max(0, Math.min((fill.count || 0) - lockedFillCount, remainSlots));
+      if (need <= 0) continue;
+      const fillAvail = avail.filter(p => !assignedIds.has(p.id));
+      if (fillAvail.length === 0) break;
+      const sorted = [...fillAvail].sort((a, b) => {
+        const fa = (cnt[a.id].fill[pid] || 0);
+        const fb = (cnt[b.id].fill[pid] || 0);
+        if (fa !== fb) return fa - fb;
+        return Math.random() - 0.5;
+      });
+      sorted.slice(0, Math.min(need, fillAvail.length)).forEach(p => {
+        setCell(state.currentCycle, dk, p.id, `work:${pid}`);
+        cnt[p.id].fill[pid] = (cnt[p.id].fill[pid] || 0) + 1;
+        assignedIds.add(p.id);
+      });
+    }
+
+    // 4. 余った人 → 'work' (時間未定) ※ ロック済みは触らない
+    for (const p of avail) {
+      if (!assignedIds.has(p.id) && !isCellLocked(dk, p.id)) {
+        setCell(state.currentCycle, dk, p.id, 'work');
+      }
+    }
+  }
+
+  saveState();
+  render();
+}
+
+document.getElementById('auto-assign-btn').onclick = autoAssign;
+
+document.getElementById('prev').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, -1); saveState(); render(); };
+document.getElementById('next').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, +1); saveState(); render(); };
+
+document.getElementById('export-btn').onclick = () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `shift-${state.currentCycle}.json`; a.click();
+  URL.revokeObjectURL(url);
+};
+document.getElementById('import-btn').onclick = () => document.getElementById('import-file').click();
+document.getElementById('import-file').onchange = (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = migrate(JSON.parse(r.result));
+      if (confirm('現在のデータを上書きします。よろしいですか?')) {
+        state = d; saveState(); render();
+      }
+    } catch (err) { alert('読込失敗: ' + err.message); }
+  };
+  r.readAsText(f); e.target.value = '';
+};
+
+render();
+maybeAutoFetchHolidays();
+
+// === PWA: Service Worker 登録 ===
+// HTTPS または localhost で動作 (file:// では登録されない)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(err => {
+      console.warn('Service Worker 登録失敗:', err);
+    });
+  });
+}
+</script>
+</body>
+</html>

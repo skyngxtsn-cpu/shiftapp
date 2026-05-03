@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#4a90e2"/>
+  <g fill="#fff">
+    <rect x="120" y="156" width="272" height="220" rx="14" fill="#fff" opacity="0.15"/>
+    <rect x="120" y="156" width="272" height="42" rx="14" fill="#fff" opacity="0.25"/>
+    <text x="256" y="340" font-family="-apple-system, 'Hiragino Sans', sans-serif" font-size="220" font-weight="700" text-anchor="middle">シ</text>
+  </g>
+</svg>
