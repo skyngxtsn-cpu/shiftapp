@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>薬剤師シフト管理アプリ 使い方ガイド</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", sans-serif;
+    color: #222;
+    line-height: 1.6;
+    font-size: 11pt;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 8mm;
+  }
+  h1 {
+    font-size: 22pt;
+    color: #2c5aa0;
+    border-bottom: 3px solid #4a90e2;
+    padding-bottom: 6px;
+    margin: 0 0 12px 0;
+  }
+  h2 {
+    font-size: 15pt;
+    color: #2c5aa0;
+    margin-top: 20px;
+    padding: 6px 10px;
+    background: #e7f0fd;
+    border-left: 5px solid #4a90e2;
+    border-radius: 0 3px 3px 0;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12pt;
+    color: #333;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+  p, ul, ol { margin: 6px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 2px 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    page-break-inside: avoid;
+    font-size: 10pt;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 5px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f0f5fc;
+    font-weight: bold;
+    color: #2c5aa0;
+  }
+  code {
+    background: #f5f5f5;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10pt;
+  }
+  pre {
+    background: #f5f5f5;
+    padding: 10px 14px;
+    border-radius: 4px;
+    overflow-x: auto;
+    border-left: 3px solid #aaa;
+    page-break-inside: avoid;
+    font-size: 10pt;
+    line-height: 1.4;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 16px 0;
+  }
+  .notice {
+    background: #fff8e1;
+    border: 1px solid #ffd54f;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 10.5pt;
+  }
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 9pt;
+    font-weight: bold;
+  }
+  .badge.off { background: #ffd5d5; color: #c0392b; }
+  .badge.work { background: #d5e5ff; color: #2c5aa0; }
+  .badge.help { background: #ffe5b3; color: #c47b00; }
+  .badge.paid { background: #f0d5ff; color: #8e44ad; }
+  header.title {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  header.title .url {
+    color: #4a90e2;
+    font-size: 10pt;
+    font-family: ui-monospace, monospace;
+  }
+  header.title .meta {
+    color: #888;
+    font-size: 9pt;
+    margin-top: 4px;
+  }
+  .cover-note {
+    background: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 10pt;
+  }
+  section { page-break-inside: auto; }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<header class="title">
+  <h1>📋 薬剤師シフト管理アプリ 使い方ガイド</h1>
+  <div class="url">https://skyngxtsn-cpu.github.io/shiftapp/shift.html</div>
+  <div class="meta">シフト作成者向け / 2026年版</div>
+</header>
+
+<div class="cover-note">
+  <strong>このアプリでできること</strong>: 月度（16日〜翌15日）単位でシフトを組む。希望休の集約・不足日の検出・自動割り当て・時間調整・スナップショット保存まで一通り対応。データは端末ごとにブラウザ保存（オフライン動作）。
+</div>
+
+<section>
+  <h2>🗓 月度の基本</h2>
+  <ul>
+    <li><strong>シフト周期: 16日〜翌15日</strong>（ヘッダの ◀ ▶ で月度切替）</li>
+    <li>各月度のデータは独立して保存される</li>
+    <li>データはブラウザに自動保存（複数端末で使う時は「エクスポート」で JSON 持ち運び）</li>
+    <li>初回使用時は <strong>⚙ 設定</strong> でメンバー名・パターン時刻・必要人数 を編集</li>
+  </ul>
+</section>
+
+<section>
+  <h2>🎛 3つのモード（ヘッダ中央のタブ）</h2>
+
+  <h3>① 休み決めモード（最初に使う）</h3>
+  <p>セルクリックで状態が循環:</p>
+  <pre>空 → 休 → 出 → ヘ → 有 → 空</pre>
+
+  <table>
+    <thead>
+      <tr><th style="width:20%">状態</th><th>意味</th><th style="width:20%">人数カウント</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>空</td><td>未設定（デフォルト出勤扱い）</td><td>+1</td></tr>
+      <tr><td><span class="badge off">休</span></td><td>絶対休み（希望休）</td><td>0</td></tr>
+      <tr><td><span class="badge work">出</span></td><td>絶対出勤（在宅・研修など休めない日）</td><td>+1</td></tr>
+      <tr><td><span class="badge help">ヘ</span></td><td>他店ヘルプに行く（自店舗カウント外）</td><td>−1</td></tr>
+      <tr><td><span class="badge paid">有</span></td><td>有給休暇（時間カウント対象）</td><td>0（労働時間にはカウント）</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>下部パネル3つ:</strong></p>
+  <ul>
+    <li>① <strong>不足日リスト</strong>（ヘルプ要請対象）</li>
+    <li>② <strong>週休チェック</strong>（週1日相当）</li>
+    <li>③ <strong>休みの提案</strong>（不足を埋める候補）</li>
+  </ul>
+
+  <h3>② 時間決めモード（休み確定後）</h3>
+  <p>セルクリックでパターン選択（早番・通し・遅番・木曜早…）。</p>
+  <ul>
+    <li><strong>🎲 自動割り当て</strong>: 公平性最優先で全員に早/遅/通しを配分</li>
+    <li>各人の早出/遅出回数が均一になるよう動く</li>
+    <li>遅番ペアもランダム化で同じペア連発を回避</li>
+    <li>「遅出の翌日 → 早出」「休みの翌日 → 遅出」を可能な範囲で適用</li>
+    <li>ロック済みセルは触らない</li>
+    <li><strong>🕐 時間を直接編集</strong>: 各セルのポップオーバーから、パターンの時間だけ15分刻みで上書き可</li>
+  </ul>
+
+  <h3>③ 最終調整モード</h3>
+  <p>セルに <strong>開始-終了時刻</strong> を表示。クリックで個別に時間調整。</p>
+  <ul>
+    <li>パターンから変えた時間は <strong style="color:#c0392b;">赤字</strong> で表示</li>
+    <li>「パターン通りに戻す」ボタンで元に戻る</li>
+    <li>ロック済みセルもクリックで時間「閲覧」可能（編集はできない）</li>
+  </ul>
+</section>
+
+<section class="page-break">
+  <h2>🔘 ヘッダのボタン</h2>
+  <table>
+    <thead><tr><th style="width:30%">ボタン</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><strong>🔒 ロック編集</strong></td><td>ON にしてセルクリック → ロック切替（金色枠 + 🔒）。ロック中のセルは自動割り当てで触られない</td></tr>
+      <tr><td><strong>📷 スナップショット</strong></td><td>現在の周期の状態を名前付きで保存。後で復元可</td></tr>
+      <tr><td><strong>🗑 全クリア</strong></td><td>現在周期のシフトを全消去（二重確認あり）</td></tr>
+      <tr><td><strong>⚙ 設定</strong></td><td>メンバー・パターン・自動割当ルール等の編集</td></tr>
+      <tr><td><strong>エクスポート/インポート</strong></td><td>JSON でバックアップ・端末間移動</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>🔄 おすすめ運用フロー（月次）</h2>
+
+  <h3>■ 月初（前月20日まで）</h3>
+  <ol>
+    <li>各メンバーから希望休を集める</li>
+    <li>アプリで月度を切替（▶ で次月度へ）</li>
+    <li>休みモードで希望休 →「休」、絶対出勤日 →「出」、有給 →「有」を入力</li>
+    <li>自分が他店ヘルプに行く日 →「ヘ」</li>
+  </ol>
+
+  <h3>■ ヘルプ調整</h3>
+  <ol start="5">
+    <li>下部パネル①「不足日リスト」を確認</li>
+    <li>ヘルプ要員（外部から来る人）→「ヘ+」で +1</li>
+    <li>それでも足りない日はエリアマネージャーに依頼</li>
+  </ol>
+
+  <h3>■ 時間決定</h3>
+  <ol start="8">
+    <li>時間モードに切替</li>
+    <li><strong>🎲 自動割り当て</strong> で一発配分</li>
+    <li>不公平・違和感のある日を手動修正</li>
+    <li>確定した部分を 🔒 ロック → もう一度 🎲 で残りシャッフル</li>
+  </ol>
+
+  <h3>■ 最終調整</h3>
+  <ol start="12">
+    <li>最終調整モードで個別の時間を 15分単位で微調整</li>
+    <li>完成したら 📷 スナップショット保存（名前: "5月度・確定版" 等）</li>
+    <li>エクスポートで JSON もバックアップ</li>
+  </ol>
+
+  <h3>■ 月末</h3>
+  <ol start="15">
+    <li>印刷 or スマホで各スタッフに共有</li>
+    <li>翌月度に切替（▶）→ サイクル繰り返し</li>
+  </ol>
+</section>
+
+<section class="page-break">
+  <h2>⚙ 初期設定（最初の1回だけ）</h2>
+  <p>設定 → 順に確認:</p>
+  <ul>
+    <li><strong>メンバー一覧</strong>: 名前を本物に変更（A/B/C/D/E/F → 実名）。種別（正社員/パート/ヘルプ）を設定。▲▼ で並べ替え</li>
+    <li><strong>シフトパターン</strong>: 既定で 早番・通し・遅番・木曜系・土曜系・半日早/遅・有給・ヘルプ が登録済み。⋮⋮ ドラッグで並べ替え可。時刻は会社の実際の時間に合わせて編集</li>
+    <li><strong>曜日ごとの自動割当ルール</strong>: 各曜日に何人を早/遅/通しに配分するか。残りパターンは複数指定可</li>
+    <li><strong>曜日ごとの設定</strong>: 必要人数、休み価値、営業/閉局</li>
+    <li><strong>祝日</strong>: 「日本の祝日を自動取得」ボタンで一括取込</li>
+    <li><strong>パート週上限</strong>: デフォルト32時間</li>
+  </ul>
+</section>
+
+<section>
+  <h2>🎯 公平性ロジック（自動割り当ての中身）</h2>
+
+  <h3>何を均一化しているか</h3>
+  <p>各メンバーごとに <strong>3種類のカウント</strong> を周期内で集計:</p>
+  <table>
+    <thead><tr><th style="width:25%">カウント</th><th>意味</th></tr></thead>
+    <tbody>
+      <tr><td><strong>earlyRole</strong></td><td>「早出役パターン」を担当した回数（全曜日合算）</td></tr>
+      <tr><td><strong>lateRole</strong></td><td>「遅出役パターン」を担当した回数（全曜日合算）</td></tr>
+      <tr><td><strong>fill[pattern]</strong></td><td>各「残りパターン」を担当した回数</td></tr>
+    </tbody>
+  </table>
+
+  <h3>スコア式（小さいほど選ばれやすい）</h3>
+  <pre>早出選定 (各日 1人):
+  score = earlyRole × 100 + (前日が遅出役 ? -10 : 0) + Math.random()
+
+遅出選定 (1人ピック):
+  score = lateRole × 100 + (前日が休み/閉局/祝日 ? -10 : 0) + Math.random()
+
+遅出ペア選定 (2人ペア):
+  score = (lateRoleA + lateRoleB) × 1000
+        + pairCount[a,b] × 30
+        + (前日休みボーナス: -10 each)
+        + Math.random() × 10
+
+残り (fill) 選定:
+  score = fill[patternId] + Math.random() × 0.5</pre>
+
+  <h3>優先順位の設計</h3>
+  <table>
+    <thead><tr><th style="width:25%">桁</th><th>何を優先</th></tr></thead>
+    <tbody>
+      <tr><td>×1000 / ×100</td><td>公平性カウント（最優先）</td></tr>
+      <tr><td>×30</td><td>ペア多様化（遅出のみ）</td></tr>
+      <tr><td>×10 / −10</td><td>前日ルール（タイブレーカー）</td></tr>
+      <tr><td>×0〜1</td><td>ランダム（同点最終ブレイク）</td></tr>
+    </tbody>
+  </table>
+  <p>→ <strong>公平性が圧倒的に優先</strong>、それを満たす範囲でルールが効く設計</p>
+
+  <h3>「無理なら無理」の柔軟性</h3>
+  <p><strong>ハード制約（必須）:</strong></p>
+  <ul>
+    <li>休 / 他店ヘルプ のセルは絶対に上書きしない</li>
+    <li>ロック済みセルは触らない</li>
+    <li>必要人数を超えて配分しない</li>
+  </ul>
+  <p><strong>ソフト制約（できる範囲で）:</strong></p>
+  <ul>
+    <li>公平性: cnt 差 1 以下を目指す（avail が少ない日は妥協）</li>
+    <li>遅→翌日早: 翌日 avail に該当者がいなければスキップ</li>
+    <li>休→翌日遅: 同上</li>
+  </ul>
+  <p>制約を満たせない日は「出（時間未定）」のまま残し、ユーザーが手動で調整。</p>
+</section>
+
+<section class="page-break">
+  <h2>💡 Tips</h2>
+  <ul>
+    <li><strong>複数のシナリオを比較したい時</strong>: 案ごとに 📷 スナップショット → 復元で切替</li>
+    <li><strong>公平性が崩れてる気がする時</strong>: 🎲 を何度か押す（毎回少し変わる）</li>
+    <li><strong>特定の組み合わせを固定したい時</strong>: その日のセルを 🔒 ロックしてから 🎲</li>
+    <li><strong>JSON エクスポートのタイミング</strong>: 月の確定時 + 大きな変更前</li>
+    <li><strong>データが消えた</strong>: インポートで JSON 復元、または スナップショットから復元</li>
+    <li><strong>アプリが重い・古い</strong>: ブラウザリロード or アンインストール → 再インストール（データはローカルに残る）</li>
+  </ul>
+</section>
+
+<section>
+  <h2>🆘 困った時</h2>
+  <table>
+    <thead><tr><th style="width:40%">問題</th><th>対処</th></tr></thead>
+    <tbody>
+      <tr><td>不足日に出てるけど誰にも頼めない</td><td>その日の必要人数を一時的に減らす（曜日設定 → 必要人数）</td></tr>
+      <tr><td>自動割当が想定と違う配分</td><td>自動割当ルール表で 早出/遅出 の数や残りパターンを調整 → 再実行</td></tr>
+      <tr><td>特定の人に偏りすぎ</td><td>全体を 🗑 全クリアして 🎲 やり直し（既存ロックも一緒に消える点注意）</td></tr>
+      <tr><td>複数月で同じ設定を使いたい</td><td>設定はアプリ全体で共有（周期切替で持ち越される）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>📊 結果のチェック方法</h2>
+  <p>グリッド右端の「早/遅」列で各人の合計が表示される:</p>
+  <pre>A: 早3 / 遅2
+B: 早2 / 遅3
+C: 早3 / 遅2
+D: 早2 / 遅3
+E: 早3 / 遅2
+F: 早2 / 遅3</pre>
+  <p>→ 各人の早+遅 = ほぼ同じ、早/遅の差も ±1 以内なら公平に配分されている。</p>
+</section>
+
+<hr>
+
+<p style="text-align:center;color:#888;font-size:9pt;margin-top:30px;">
+  薬剤師シフト管理 PWA / Made by skyngxtsn-cpu / 2026
+</p>
+
+</body>
+</html>
