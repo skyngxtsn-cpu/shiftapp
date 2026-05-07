@@ -181,6 +181,14 @@
 
 <div id="legend"></div>
 
+<div id="part-carryover-banner" hidden>
+  <div style="background:#fff3cd;border:1px solid #d4a017;border-radius:4px;padding:8px 12px;margin-bottom:8px;font-size:13px;">
+    <div style="font-weight:bold;color:#855700;margin-bottom:4px;">📋 部分週の引き継ぎ時間（前週の労働時間）</div>
+    <div style="font-size:11px;color:#666;margin-bottom:6px;" id="part-carryover-hint"></div>
+    <div id="part-carryover-list" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+  </div>
+</div>
+
 <section id="grid-container">
   <table id="shift-grid"></table>
 </section>
@@ -296,19 +304,24 @@ function defaultWeekdaySettings() {
 
 function defaultShiftPatterns() {
   return [
-    { id: 'early',     name: '早番',    start: '08:30', end: '18:30', breakMin: 60, color: '#ffe9b3' },
-    { id: 'full',      name: '通し',    start: '09:00', end: '19:00', breakMin: 60, color: '#cce0ff' },
-    { id: 'late',      name: '遅番',    start: '10:00', end: '19:00', breakMin: 60, color: '#d8c8ff' },
-    { id: 'thu',       name: '木曜通し', start: '09:00', end: '18:00', breakMin: 60, color: '#ccecd6' },
-    { id: 'thu_early', name: '木曜早',  start: '08:30', end: '18:00', breakMin: 60, color: '#ffe0a0' },
-    { id: 'thu_late',  name: '木曜遅',  start: '10:00', end: '18:00', breakMin: 60, color: '#cab8ff' },
-    { id: 'sat',       name: '土曜',    start: '09:00', end: '13:30', breakMin: 0,  color: '#ffd9b3' },
-    { id: 'sat_early', name: '土曜早',  start: '08:30', end: '13:30', breakMin: 0,  color: '#ffcc80' },
-    { id: 'sat_late',  name: '土曜遅',  start: '09:30', end: '13:30', breakMin: 0,  color: '#c0a8ff' },
-    { id: 'half_am',   name: '半日早',  start: '09:00', end: '14:00', breakMin: 0,  color: '#ffd0d9' },
-    { id: 'half_pm',   name: '半日遅',  start: '14:00', end: '19:00', breakMin: 0,  color: '#c8f0e0' },
-    { id: 'help_default', name: 'ヘルプ', start: '10:00', end: '18:00', breakMin: 60, color: '#ffdcaa' },
-    { id: 'paid',      name: '有給',    start: '09:00', end: '18:00', breakMin: 60, color: '#ffccdd' },
+    { id: 'early',     name: '早番',    start: '08:30', end: '18:30', breakMin: 60, color: '#ffe9b3', forParts: false },
+    { id: 'full',      name: '通し',    start: '09:00', end: '19:00', breakMin: 60, color: '#cce0ff', forParts: false },
+    { id: 'late',      name: '遅番',    start: '10:00', end: '19:00', breakMin: 60, color: '#d8c8ff', forParts: false },
+    { id: 'thu',       name: '木曜通し', start: '09:00', end: '18:00', breakMin: 60, color: '#ccecd6', forParts: false },
+    { id: 'thu_early', name: '木曜早',  start: '08:30', end: '18:00', breakMin: 60, color: '#ffe0a0', forParts: false },
+    { id: 'thu_late',  name: '木曜遅',  start: '10:00', end: '18:00', breakMin: 60, color: '#cab8ff', forParts: false },
+    { id: 'sat',       name: '土曜',    start: '09:00', end: '13:30', breakMin: 0,  color: '#ffd9b3', forParts: false },
+    { id: 'sat_early', name: '土曜早',  start: '08:30', end: '13:30', breakMin: 0,  color: '#ffcc80', forParts: false },
+    { id: 'sat_late',  name: '土曜遅',  start: '09:30', end: '13:30', breakMin: 0,  color: '#c0a8ff', forParts: false },
+    { id: 'half_am',   name: '半日早',  start: '09:00', end: '14:00', breakMin: 0,  color: '#ffd0d9', forParts: false },
+    { id: 'half_pm',   name: '半日遅',  start: '14:00', end: '19:00', breakMin: 0,  color: '#c8f0e0', forParts: false },
+    { id: 'help_default', name: 'ヘルプ', start: '10:00', end: '18:00', breakMin: 60, color: '#ffdcaa', forParts: false },
+    { id: 'paid',      name: '有給',    start: '09:00', end: '18:00', breakMin: 60, color: '#ffccdd', forParts: false },
+    // パート用デフォルトパターン
+    { id: 'part_9_17', name: 'パ9-17',  start: '09:00', end: '17:00', breakMin: 60, color: '#e0c0ff', forParts: true },
+    { id: 'part_9_16', name: 'パ9-16',  start: '09:00', end: '16:00', breakMin: 60, color: '#d0c0ff', forParts: true },
+    { id: 'part_9_15', name: 'パ9-15',  start: '09:00', end: '15:00', breakMin: 0,  color: '#ffd0e0', forParts: true },
+    { id: 'part_13_17', name: 'パ13-17', start: '13:00', end: '17:00', breakMin: 0,  color: '#c0e0ff', forParts: true },
   ];
 }
 
@@ -377,6 +390,40 @@ function defaultData() {
 // アクティブシートへのアクセサ (大半の関数で使用)
 function ss() {
   return state.sheets[state.activeSheet];
+}
+
+// 月度の最初の週が部分週か (月曜始まりでないなら true)
+function isFirstWeekPartial() {
+  const { start } = cycleRange(state.currentCycle);
+  return start.getDay() !== 1;
+}
+// パートの引き継ぎ時間 (h、小数可) 取得・設定
+function getPartCarryover(pid) {
+  const co = ss().partCarryover || {};
+  const cycle = co[state.currentCycle] || {};
+  return Number(cycle[pid]) || 0;
+}
+function setPartCarryover(pid, hours) {
+  if (!ss().partCarryover) ss().partCarryover = {};
+  if (!ss().partCarryover[state.currentCycle]) ss().partCarryover[state.currentCycle] = {};
+  if (!hours || hours <= 0) {
+    delete ss().partCarryover[state.currentCycle][pid];
+    if (Object.keys(ss().partCarryover[state.currentCycle]).length === 0) {
+      delete ss().partCarryover[state.currentCycle];
+    }
+  } else {
+    ss().partCarryover[state.currentCycle][pid] = hours;
+  }
+  saveState();
+}
+// HH:MM 文字列を時間 (number) に変換 (空欄や不正は 0)
+function parseHoursStr(s) {
+  if (!s) return 0;
+  s = String(s).trim();
+  if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s); // 数値直入力対応
+  const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!m) return 0;
+  return parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
 }
 
 function migrate(d) {
@@ -452,6 +499,12 @@ function migrate(d) {
         if (!existingIds.has(pat.id)) sheet.settings.shiftPatterns.push(pat);
       }
     }
+    // forParts フラグの補完
+    for (const pat of sheet.settings.shiftPatterns) {
+      if (typeof pat.forParts !== 'boolean') pat.forParts = false;
+    }
+    // パート週引き継ぎ時間の補完
+    if (!sheet.partCarryover) sheet.partCarryover = {};
     if (!sheet.settings.personTypes) sheet.settings.personTypes = defaultPersonTypes();
     if (!sheet.settings.personTypes['ヘルプ']) sheet.settings.personTypes['ヘルプ'] = { kind: 'helper' };
     if (!Array.isArray(sheet.people)) sheet.people = [];
@@ -660,8 +713,48 @@ function render() {
   renderHeader();
   renderModeToggle();
   renderLegend();
+  renderPartCarryoverBanner();
   renderGrid();
   renderSummary();
+}
+
+function renderPartCarryoverBanner() {
+  const banner = document.getElementById('part-carryover-banner');
+  const partMembers = ss().people.filter(p => p.type === 'パート');
+  if (!isFirstWeekPartial() || partMembers.length === 0) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  // 部分週の範囲を計算
+  const { start } = cycleRange(state.currentCycle);
+  const dayOfWeek = start.getDay();
+  // 前週の月曜～前週の日曜 を表示
+  const prevMon = new Date(start);
+  prevMon.setDate(start.getDate() - ((dayOfWeek + 6) % 7) - 7);
+  const prevSun = new Date(prevMon);
+  prevSun.setDate(prevMon.getDate() + 6);
+  document.getElementById('part-carryover-hint').textContent =
+    `前週 ${prevMon.getMonth()+1}/${prevMon.getDate()}〜${prevSun.getMonth()+1}/${prevSun.getDate()} の労働時間を入れてください (HH:MM 形式、空欄=0)`;
+  const list = document.getElementById('part-carryover-list');
+  list.innerHTML = partMembers.map(p => {
+    const cur = getPartCarryover(p.id);
+    const curStr = cur > 0 ? formatHHMM(cur) : '';
+    return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;">
+      <span><b>${escapeHtml(p.name)}</b>:</span>
+      <input type="text" class="time-input carryover-input" data-pid="${p.id}" maxlength="5" placeholder="HH:MM" value="${curStr}" style="width:70px;font-size:13px;text-align:center;">
+    </label>`;
+  }).join('');
+  list.querySelectorAll('.carryover-input').forEach(inp => {
+    attachTimeInput(inp);
+    inp.addEventListener('change', () => {
+      const pid = inp.dataset.pid;
+      const h = parseHoursStr(inp.value);
+      setPartCarryover(pid, h);
+      // 時間サマリも更新
+      if (state.uiMode === 'time' || state.uiMode === 'adjust') renderSummary();
+    });
+  });
 }
 
 function renderSheetTabs() {
@@ -1143,14 +1236,19 @@ function renderTimeSummary() {
       const monthCur = personMonthlyHours(p.id);
       let weekRows = '';
       let anyOver = false;
-      for (const w of weeks) {
+      for (let wi = 0; wi < weeks.length; wi++) {
+        const w = weeks[wi];
         const wh = personWeeklyHours(p.id, w);
-        const ws = w[0], we = w[w.length-1];
-        const over = wh > partLimit;
+        const isFirstPartial = wi === 0 && isFirstWeekPartial();
+        const carry = isFirstPartial ? getPartCarryover(p.id) : 0;
+        const total = wh + carry;
+        const over = total > partLimit;
         if (over) anyOver = true;
+        const ws = w[0], we = w[w.length-1];
+        const carryStr = carry > 0 ? `引${formatHHMM(carry)}+` : '';
         weekRows += `<div class="w-row ${over ? 'w-over' : ''}">
           <span>${ws.getMonth()+1}/${ws.getDate()}〜${we.getMonth()+1}/${we.getDate()}:</span>
-          <span>${wh.toFixed(1)}h / ${partLimit}h${over ? ` ⚠ +${(wh-partLimit).toFixed(1)}h超過` : ''}</span>
+          <span>${carryStr}${wh.toFixed(1)}h / ${partLimit}h${over ? ` ⚠ +${(total-partLimit).toFixed(1)}h超過` : ''}</span>
         </div>`;
       }
       const numsCls = anyOver ? 'over' : 'ok';
@@ -1584,7 +1682,7 @@ document.getElementById('part-weekly-limit').addEventListener('input', (e) => {
 function renderPatternsTable() {
   const tbl = document.getElementById('patterns-table');
   const total = ss().settings.shiftPatterns.length;
-  let html = '<thead><tr><th title="ドラッグで並び替え">⇅</th><th>名前</th><th>開始</th><th>終了</th><th>休憩(分)</th><th>計算h</th><th>色</th><th></th></tr></thead><tbody>';
+  let html = '<thead><tr><th title="ドラッグで並び替え">⇅</th><th>名前</th><th>開始</th><th>終了</th><th>休憩(分)</th><th>計算h</th><th>色</th><th title="パート用 (パートの自動割当に使う)">パ</th><th></th></tr></thead><tbody>';
   ss().settings.shiftPatterns.forEach((p, i) => {
     html += `<tr data-id="${p.id}">
       <td class="drag-handle" draggable="true" title="ドラッグして並び替え">⋮⋮</td>
@@ -1594,6 +1692,7 @@ function renderPatternsTable() {
       <td><input type="number" data-id="${p.id}" data-field="breakMin" min="0" step="15" value="${p.breakMin || 0}"></td>
       <td class="pat-hours" data-id="${p.id}">${patternHours(p).toFixed(1)}h</td>
       <td><input type="color" data-id="${p.id}" data-field="color" value="${p.color || '#ffffff'}"></td>
+      <td style="text-align:center;"><input type="checkbox" data-id="${p.id}" data-field="forParts" ${p.forParts ? 'checked' : ''}></td>
       <td><button class="del-pat danger" data-id="${p.id}">×</button></td>
     </tr>`;
   });
@@ -1607,6 +1706,7 @@ function renderPatternsTable() {
       const pat = ss().settings.shiftPatterns.find(x => x.id === id);
       if (!pat) return;
       if (field === 'breakMin') pat[field] = Math.max(0, parseInt(inp.value) || 0);
+      else if (field === 'forParts') pat.forParts = inp.checked;
       else pat[field] = inp.value;
       saveState();
       // 計算hセルだけピンポイント更新（テーブル全体は再描画しない）
@@ -2187,8 +2287,81 @@ function autoAssign() {
     }
   }
 
+  // === パート自動割り当て (週上限ベース) ===
+  autoAssignParts();
+
   saveState();
   render();
+}
+
+// パート自動割り当て: 週上限から引き継ぎ・既配置を引いた残り時間を、パート用パターンで埋める
+function autoAssignParts() {
+  const partMembers = ss().people.filter(p => p.type === 'パート');
+  if (partMembers.length === 0) return;
+  const partPatterns = ss().settings.shiftPatterns.filter(p => p.forParts);
+  if (partPatterns.length === 0) return;
+  const limit = partWeeklyLimit();
+  const cycle = state.currentCycle;
+  const { start, end } = cycleRange(cycle);
+  const dates = listDates(start, end);
+  const weeks = groupByWeek(dates);
+
+  for (const p of partMembers) {
+    for (let wi = 0; wi < weeks.length; wi++) {
+      const week = weeks[wi];
+      const isFirstPartial = wi === 0 && isFirstWeekPartial();
+      const carryover = isFirstPartial ? getPartCarryover(p.id) : 0;
+
+      // 既配置時間 (希望休/絶対出勤/ヘルプ等で既に入っている時間)
+      let assignedHours = 0;
+      for (const d of week) {
+        const dk = dateKey(d);
+        const v = getCell(cycle, dk, p.id);
+        if (isWork(v) || isHelp(v) || isPaid(v)) {
+          assignedHours += cellHours(v, dk, p.id);
+        }
+      }
+
+      let remaining = limit - carryover - assignedHours;
+      if (remaining < 0.001) continue; // すでに上限に達している
+
+      // 候補日: 営業日 / 空セル / ロックなし / 休でない
+      const candidates = [];
+      for (const d of week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        if (isCellLocked(dk, p.id)) continue;
+        const v = getCell(cycle, dk, p.id);
+        if (v !== null) continue; // 既に何か入っている (休/出/ヘ/有/work:..)
+        candidates.push(d);
+      }
+      if (candidates.length === 0) continue;
+
+      // 配分: 残り時間を候補日数で割って目標時間を出し、最も近いパターンを選ぶ
+      let candidatesLeft = candidates.length;
+      for (const d of candidates) {
+        if (remaining < 0.001 || candidatesLeft === 0) break;
+        const target = remaining / candidatesLeft;
+        let chosen = null;
+        let chosenScore = -Infinity;
+        for (const pat of partPatterns) {
+          const ph = patternHours(pat);
+          if (ph > remaining + 0.001) continue;
+          // 目標に近い + ピッタリ収まる方が良い (タイ時はランダム)
+          const score = -Math.abs(ph - target) + Math.random() * 0.001;
+          if (score > chosenScore) {
+            chosen = pat;
+            chosenScore = score;
+          }
+        }
+        if (chosen) {
+          setCell(cycle, dateKey(d), p.id, `work:${chosen.id}`);
+          remaining -= patternHours(chosen);
+        }
+        candidatesLeft--;
+      }
+    }
+  }
 }
 
 document.getElementById('auto-assign-btn').onclick = autoAssign;
