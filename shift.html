@@ -2139,9 +2139,10 @@ function autoAssign() {
     const lockedPatternCount = {}; // patternId -> count of locked cells using it
     let lockedLateMembers = [];
 
-    // ロック済みセルを「割当済み」扱いにし、cnt にも反映
+    // ロック済みセルを「割当済み」扱いにし、cnt にも反映 (正社員のみ)
     for (const p of ss().people) {
       if (isHelperPerson(p)) continue;
+      if (p.type === 'パート') continue; // パートは別ロジック
       if (!isCellLocked(dk, p.id)) continue;
       const v = getCell(state.currentCycle, dk, p.id);
       if (isOff(v) || isHelp(v)) continue; // off/help は割当対象外なのでカウントだけ無視
@@ -2165,9 +2166,11 @@ function autoAssign() {
       pairCnt[k] = (pairCnt[k] || 0) + 1;
     }
 
-    // 利用可能 = 正社員/パートのうち「休」「他店ヘルプ」「有給」「ロック」以外
+    // 利用可能 = 正社員のみ「休」「他店ヘルプ」「有給」「ロック」以外
+    // (パートは別ロジック autoAssignParts() で週上限ベース処理)
     const avail = ss().people.filter(p => {
       if (isHelperPerson(p)) return false;
+      if (p.type === 'パート') return false; // パートは正社員ロジックの対象外
       if (isCellLocked(dk, p.id)) return false; // ロックされている = 既に処理済み
       const v = getCell(state.currentCycle, dk, p.id);
       return !isOff(v) && !isHelp(v) && !isPaid(v);
