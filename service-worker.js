@@ -1,6 +1,6 @@
 // 薬剤師シフト管理 PWA Service Worker
 // バージョンを上げると古いキャッシュが破棄される
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `shift-app-${CACHE_VERSION}`;
 
 const SHELL_FILES = [
