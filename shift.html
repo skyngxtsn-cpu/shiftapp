@@ -151,6 +151,61 @@
     h1 { font-size: 16px; }
     dialog { min-width: 0; width: 96vw; }
   }
+
+  /* ===== 印刷用スタイル ===== */
+  #print-header { display: none; }
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-size: 9pt; background: white; padding: 0; margin: 0; color: #000; }
+
+    /* 非表示にする UI 要素 */
+    .sheet-tabs,
+    header,
+    #legend,
+    #rest-summary,
+    #time-summary,
+    dialog,
+    #pattern-popover,
+    button,
+    .move-up, .move-down, .pat-move-up, .pat-move-down,
+    .lock-icon { display: none !important; }
+
+    /* 印刷用ヘッダ (画面では非表示、印刷時に表示) */
+    #print-header {
+      display: block !important;
+      text-align: center;
+      margin-bottom: 6pt;
+      page-break-after: avoid;
+    }
+    #print-header h1 { font-size: 14pt; margin: 0 0 2pt 0; }
+    #print-header .meta { font-size: 9pt; color: #555; }
+
+    /* 引き継ぎ時間バナーは印刷時に簡素表示 */
+    #part-carryover-banner {
+      display: block !important;
+      background: white !important;
+      border: 0.5pt solid #888 !important;
+      padding: 4pt 6pt !important;
+      margin-bottom: 6pt !important;
+      font-size: 8pt !important;
+      page-break-after: avoid;
+    }
+    #part-carryover-banner > div { background: white !important; border: none !important; color: #000 !important; padding: 0 !important; }
+    #part-carryover-banner input { border: 0.3pt solid #888 !important; background: white !important; }
+
+    /* グリッド本体 */
+    #grid-container { overflow: visible !important; border: none !important; }
+    table { width: 100% !important; border-collapse: collapse !important; }
+    th, td { font-size: 7pt !important; padding: 1pt 2pt !important; border: 0.4pt solid #888 !important; min-width: 0 !important; height: auto !important; }
+    td.name { position: static !important; border-right: 1pt solid #444 !important; font-size: 8pt; min-width: 50pt !important; }
+    tr { page-break-inside: avoid; }
+    /* 行の境目に薄い線 */
+    tr.required td, tr.available td { font-size: 6.5pt !important; background: #f0f0f0 !important; }
+
+    /* セルの色は保持 (print-color-adjust で強制) */
+  }
 </style>
 </head>
 <body>
@@ -175,12 +230,18 @@
   <button id="settings-btn">⚙ 設定</button>
   <button id="export-btn">エクスポート</button>
   <button id="csv-btn">📊 CSV出力</button>
+  <button id="print-btn" title="現在の表を印刷">🖨 印刷</button>
   <button id="update-btn" title="サーバから最新版を取得して再読み込み">🔄 更新確認</button>
   <button id="import-btn">インポート</button>
   <input type="file" id="import-file" accept=".json" hidden>
 </header>
 
 <div id="legend"></div>
+
+<div id="print-header">
+  <h1 id="print-title"></h1>
+  <div class="meta" id="print-meta"></div>
+</div>
 
 <div id="part-carryover-banner" hidden>
   <div style="background:#fff3cd;border:1px solid #d4a017;border-radius:4px;padding:8px 12px;margin-bottom:8px;font-size:13px;">
@@ -2708,6 +2769,22 @@ function exportCSV() {
 }
 
 document.getElementById('csv-btn').onclick = exportCSV;
+
+// === 印刷 ===
+document.getElementById('print-btn').onclick = () => {
+  hidePopover && hidePopover();
+  const [y, m] = state.currentCycle.split('-').map(Number);
+  const eY = m === 12 ? y + 1 : y;
+  const eM = m === 12 ? 1 : m + 1;
+  const sheetLabel = state.activeSheet === 'pharmacist' ? '薬剤師' : '事務';
+  const modeLabel = state.uiMode === 'rest' ? '休み決め' : state.uiMode === 'time' ? '時間決め' : '最終調整';
+  document.getElementById('print-title').textContent =
+    `${sheetLabel}シフト表 (${modeLabel})`;
+  document.getElementById('print-meta').textContent =
+    `${y}年${m}月度 ${m}/16 〜 ${eM === 1 && eY !== y ? eY + '年' : ''}${eM}/15 | ${new Date().toLocaleDateString('ja-JP')} 出力`;
+  // Chrome の印刷ダイアログを開く
+  window.print();
+};
 
 // === 手動アップデート確認 ===
 // localStorageは保持されるので、入力データは消えない。
