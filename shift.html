@@ -206,6 +206,63 @@
 
 <div id="pattern-popover" hidden></div>
 
+<dialog id="transfer-dialog">
+  <h2>📦 データ移動</h2>
+  <div style="display:flex;gap:0;border-bottom:2px solid #4a90e2;margin-bottom:10px;">
+    <button class="t-tab active" data-tab="export" style="padding:6px 18px;border:1px solid #ccc;border-bottom:none;background:#4a90e2;color:#fff;border-radius:6px 6px 0 0;font-weight:bold;cursor:pointer;">📤 エクスポート</button>
+    <button class="t-tab" data-tab="import" style="padding:6px 18px;border:1px solid #ccc;border-bottom:none;background:#f0f0f0;color:#666;border-radius:6px 6px 0 0;font-weight:bold;cursor:pointer;">📥 インポート</button>
+  </div>
+
+  <div class="t-panel" data-panel="export">
+    <p class="hint" style="margin-bottom:10px;">何を出力しますか?</p>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="export-type" value="all" checked>
+      <b>📦 全データ</b> (推奨)
+      <div style="font-size:11px;color:#666;margin-left:24px;">全シート・全月度・設定・スナップショット。別PCへの完全移行に</div>
+    </label>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="export-type" value="settings">
+      <b>⚙ 設定のみ</b>
+      <div style="font-size:11px;color:#666;margin-left:24px;">メンバー・パターン・曜日ルール・祝日 (シフトの入力データは含まない)</div>
+    </label>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="export-type" value="sheet">
+      <b>📋 現在シートのみ</b>
+      <div style="font-size:11px;color:#666;margin-left:24px;">アクティブな <span id="current-sheet-label"></span> シートだけ (もう一方のシートは含まない)</div>
+    </label>
+    <div style="margin-top:14px;text-align:right;">
+      <button id="do-export" class="primary">エクスポート実行</button>
+      <button class="t-close">閉じる</button>
+    </div>
+  </div>
+
+  <div class="t-panel" data-panel="import" hidden>
+    <p class="hint" style="margin-bottom:6px;">JSONファイルを選択:</p>
+    <input type="file" id="import-file2" accept=".json" style="margin-bottom:10px;">
+
+    <p class="hint" style="margin-bottom:6px;">取り込み方:</p>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="import-type" value="all" checked>
+      <b>📦 完全上書き</b> (推奨)
+      <div style="font-size:11px;color:#666;margin-left:24px;">現在の全データを置き換え。ファイルが「全データ」エクスポートの場合用</div>
+    </label>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="import-type" value="settings">
+      <b>⚙ 設定のみマージ</b>
+      <div style="font-size:11px;color:#666;margin-left:24px;">設定だけ取り込む。シフトの入力データ(休/出/時間)は維持</div>
+    </label>
+    <label style="display:block;margin:6px 0;padding:8px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="import-type" value="sheet">
+      <b>📋 現在シートに上書き</b>
+      <div style="font-size:11px;color:#666;margin-left:24px;">アクティブシートだけ置き換え。もう一方のシートは維持</div>
+    </label>
+    <div style="margin-top:14px;text-align:right;">
+      <button id="do-import" class="primary">インポート実行</button>
+      <button class="t-close">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="snapshot-dialog">
   <h2>📷 スナップショット</h2>
   <p class="hint">現在の周期のシフト状態 (休/出/ヘ + 時間 + ロック) を名前付きで保存・復元できます。</p>
@@ -2373,13 +2430,124 @@ document.getElementById('auto-assign-btn').onclick = autoAssign;
 document.getElementById('prev').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, -1); saveState(); render(); };
 document.getElementById('next').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, +1); saveState(); render(); };
 
-document.getElementById('export-btn').onclick = () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+// === データ移動 (3粒度: 全/設定のみ/シートのみ) ===
+function openTransferDialog(initialTab) {
+  document.getElementById('current-sheet-label').textContent = state.activeSheet === 'pharmacist' ? '薬剤師' : '事務';
+  document.querySelectorAll('.t-tab').forEach(t => {
+    const isActive = t.dataset.tab === initialTab;
+    t.classList.toggle('active', isActive);
+    t.style.background = isActive ? '#4a90e2' : '#f0f0f0';
+    t.style.color = isActive ? '#fff' : '#666';
+  });
+  document.querySelectorAll('.t-panel').forEach(p => {
+    p.hidden = p.dataset.panel !== initialTab;
+  });
+  document.getElementById('transfer-dialog').showModal();
+}
+document.querySelectorAll('.t-tab').forEach(t => {
+  t.onclick = () => {
+    const tab = t.dataset.tab;
+    document.querySelectorAll('.t-tab').forEach(x => {
+      const isActive = x.dataset.tab === tab;
+      x.classList.toggle('active', isActive);
+      x.style.background = isActive ? '#4a90e2' : '#f0f0f0';
+      x.style.color = isActive ? '#fff' : '#666';
+    });
+    document.querySelectorAll('.t-panel').forEach(p => { p.hidden = p.dataset.panel !== tab; });
+  };
+});
+document.querySelectorAll('.t-close').forEach(b => b.onclick = () => document.getElementById('transfer-dialog').close());
+
+document.getElementById('do-export').onclick = () => {
+  const type = document.querySelector('input[name="export-type"]:checked').value;
+  const today = new Date().toISOString().split('T')[0];
+  let data, filename;
+  if (type === 'all') {
+    data = state;
+    filename = `shift-全データ-${today}.json`;
+  } else if (type === 'settings') {
+    data = {
+      __exportType: 'settings',
+      version: state.version,
+      holidays: state.holidays,
+      sheets: {}
+    };
+    for (const name of Object.keys(state.sheets)) {
+      const s = state.sheets[name];
+      data.sheets[name] = {
+        people: JSON.parse(JSON.stringify(s.people)),
+        settings: JSON.parse(JSON.stringify(s.settings))
+      };
+    }
+    filename = `shift-設定のみ-${today}.json`;
+  } else { // sheet
+    data = {
+      __exportType: 'sheet',
+      __sheetName: state.activeSheet,
+      version: state.version,
+      sheet: JSON.parse(JSON.stringify(state.sheets[state.activeSheet]))
+    };
+    filename = `shift-${state.activeSheet === 'pharmacist' ? '薬剤師' : '事務'}-${today}.json`;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `shift-${state.currentCycle}.json`; a.click();
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+  document.getElementById('transfer-dialog').close();
 };
+
+document.getElementById('do-import').onclick = () => {
+  const fileInp = document.getElementById('import-file2');
+  const f = fileInp.files[0];
+  if (!f) { alert('JSONファイルを選択してください'); return; }
+  const type = document.querySelector('input[name="import-type"]:checked').value;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const imported = JSON.parse(r.result);
+      if (type === 'all') {
+        if (!confirm('全データを上書きします。現在の入力データ・設定・スナップショット全てが置き換わります。\n\n先に「全データ」をエクスポートしてバックアップを取っておくことをおすすめします。\n\n続行しますか?')) return;
+        state = migrate(imported);
+        saveState(); render();
+        alert('完全上書きインポート完了');
+      } else if (type === 'settings') {
+        if (!confirm('設定だけマージします。シフトの入力データ(休/出/時間/ロック/スナップショット) は維持されます。\n\n続行しますか?')) return;
+        if (imported.holidays) state.holidays = imported.holidays;
+        const importedSheets = imported.sheets || {};
+        for (const name of Object.keys(importedSheets)) {
+          if (!state.sheets[name]) continue;
+          if (importedSheets[name].people) state.sheets[name].people = JSON.parse(JSON.stringify(importedSheets[name].people));
+          if (importedSheets[name].settings) state.sheets[name].settings = JSON.parse(JSON.stringify(importedSheets[name].settings));
+        }
+        state = migrate(state);
+        saveState(); render();
+        alert('設定マージ完了');
+      } else { // sheet
+        const sheetLabel = state.activeSheet === 'pharmacist' ? '薬剤師' : '事務';
+        if (!confirm(`現在のシート (${sheetLabel}) を上書きします。もう一方のシートは維持されます。\n\n続行しますか?`)) return;
+        let sheetData = imported.sheet;
+        if (!sheetData && imported.__sheetName && imported.sheets) {
+          sheetData = imported.sheets[imported.__sheetName];
+        }
+        if (!sheetData && imported.sheets) {
+          const firstName = Object.keys(imported.sheets)[0];
+          if (firstName) sheetData = imported.sheets[firstName];
+        }
+        if (!sheetData) { alert('シートデータが見つかりません。ファイル形式を確認してください'); return; }
+        state.sheets[state.activeSheet] = JSON.parse(JSON.stringify(sheetData));
+        state = migrate(state);
+        saveState(); render();
+        alert('シート上書き完了');
+      }
+      document.getElementById('transfer-dialog').close();
+      fileInp.value = '';
+    } catch (err) { alert('読込失敗: ' + err.message); }
+  };
+  r.readAsText(f);
+};
+
+document.getElementById('export-btn').onclick = () => openTransferDialog('export');
 
 // === CSV出力 (スプレッドシート用フォーマット) ===
 function formatHHMM(hours) {
@@ -2556,20 +2724,8 @@ document.getElementById('update-btn').onclick = async () => {
   // 強制リロード (Service Worker は HTML をネットワーク優先で取得するので新版が来る)
   window.location.reload();
 };
-document.getElementById('import-btn').onclick = () => document.getElementById('import-file').click();
-document.getElementById('import-file').onchange = (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    try {
-      const d = migrate(JSON.parse(r.result));
-      if (confirm('現在のデータを上書きします。よろしいですか?')) {
-        state = d; saveState(); render();
-      }
-    } catch (err) { alert('読込失敗: ' + err.message); }
-  };
-  r.readAsText(f); e.target.value = '';
-};
+document.getElementById('import-btn').onclick = () => openTransferDialog('import');
+// 旧 import-file (隠し) は使わない
 
 render();
 maybeAutoFetchHolidays();
