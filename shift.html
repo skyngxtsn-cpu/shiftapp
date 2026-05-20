@@ -154,6 +154,7 @@
 
   /* ===== 印刷用スタイル ===== */
   #print-header { display: none; }
+  #print-multi-container { display: none; }
 
   @media print {
     @page { size: A4 landscape; margin: 8mm; }
@@ -201,10 +202,44 @@
     th, td { font-size: 7pt !important; padding: 1pt 2pt !important; border: 0.4pt solid #888 !important; min-width: 0 !important; height: auto !important; }
     td.name { position: static !important; border-right: 1pt solid #444 !important; font-size: 8pt; min-width: 50pt !important; }
     tr { page-break-inside: avoid; }
-    /* 行の境目に薄い線 */
     tr.required td, tr.available td { font-size: 6.5pt !important; background: #f0f0f0 !important; }
 
-    /* セルの色は保持 (print-color-adjust で強制) */
+    /* ===== オプション: 勤務サマリーも印刷 ===== */
+    body.print-with-summary #rest-summary:not([hidden]),
+    body.print-with-summary #time-summary:not([hidden]) {
+      display: block !important;
+      page-break-before: auto;
+      margin-top: 8pt;
+    }
+    body.print-with-summary .panel {
+      background: white !important;
+      border: 0.4pt solid #888 !important;
+      margin: 4pt 0;
+      padding: 4pt 6pt;
+    }
+    body.print-with-summary .panel h3 { font-size: 9pt; margin: 0 0 3pt 0; padding: 0; border: none; }
+    body.print-with-summary .panel ul, body.print-with-summary .panel p { font-size: 8pt; margin: 1pt 0; }
+    body.print-with-summary .person-time { padding: 3pt 0; }
+    body.print-with-summary .pt-head { font-size: 8pt; }
+    body.print-with-summary .pt-head .nm { font-size: 9pt; }
+
+    /* ===== オプション: 両方のシートを印刷 ===== */
+    body.print-multi #grid-container,
+    body.print-multi #rest-summary,
+    body.print-multi #time-summary,
+    body.print-multi #part-carryover-banner,
+    body.print-multi #print-header { display: none !important; }
+    body.print-multi #print-multi-container { display: block !important; }
+    .print-sheet { page-break-after: always; }
+    .print-sheet:last-child { page-break-after: auto; }
+    .print-sheet > .print-sheet-title { text-align: center; font-size: 14pt; font-weight: bold; margin: 0 0 6pt 0; }
+    .print-sheet > .print-sheet-meta { text-align: center; font-size: 9pt; color: #555; margin-bottom: 6pt; }
+    .print-sheet > div[class*="grid"] { overflow: visible !important; border: none !important; }
+    .print-sheet table { width: 100% !important; border-collapse: collapse; }
+    .print-sheet th, .print-sheet td { font-size: 7pt !important; padding: 1pt 2pt !important; border: 0.4pt solid #888 !important; }
+    .print-sheet td.name { font-size: 8pt; min-width: 50pt; position: static !important; }
+    .print-sheet .panel { background: white !important; border: 0.4pt solid #888 !important; margin: 4pt 0; padding: 4pt 6pt; font-size: 8pt; }
+    .print-sheet .panel h3 { font-size: 9pt; margin: 0 0 3pt 0; padding: 0; border: none; }
   }
 </style>
 </head>
@@ -243,6 +278,8 @@
   <div class="meta" id="print-meta"></div>
 </div>
 
+<div id="print-multi-container"></div>
+
 <div id="part-carryover-banner" hidden>
   <div style="background:#fff3cd;border:1px solid #d4a017;border-radius:4px;padding:8px 12px;margin-bottom:8px;font-size:13px;">
     <div style="font-weight:bold;color:#855700;margin-bottom:4px;">📋 部分週の引き継ぎ時間（前週の労働時間）</div>
@@ -266,6 +303,34 @@
 </section>
 
 <div id="pattern-popover" hidden></div>
+
+<dialog id="print-dialog">
+  <h2>🖨 印刷オプション</h2>
+  <div style="margin:12px 0;">
+    <p style="font-weight:bold;margin:0 0 6px 0;font-size:13px;">印刷範囲</p>
+    <label style="display:block;margin:4px 0;padding:6px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="print-scope" value="current" checked>
+      現在のシートのみ <span style="font-size:11px;color:#888;" id="print-current-sheet-label"></span>
+    </label>
+    <label style="display:block;margin:4px 0;padding:6px 10px;background:#f5f5f5;border-radius:4px;cursor:pointer;">
+      <input type="radio" name="print-scope" value="both">
+      両方のシート (薬剤師 + 事務) <span style="font-size:11px;color:#888;">改ページで分かれます</span>
+    </label>
+  </div>
+  <div style="margin:12px 0;padding-top:8px;border-top:1px solid #eee;">
+    <label style="display:block;font-size:13px;">
+      <input type="checkbox" id="print-include-summary"> <b>勤務サマリーも含める</b>
+    </label>
+    <div style="font-size:11px;color:#888;margin-left:24px;margin-top:2px;">
+      休み決め: 不足日 / 週休チェック / 提案<br>
+      時間決め: 月所定・累計時間
+    </div>
+  </div>
+  <div style="margin-top:14px;text-align:right;">
+    <button id="cancel-print">キャンセル</button>
+    <button id="do-print" class="primary">印刷実行</button>
+  </div>
+</dialog>
 
 <dialog id="transfer-dialog">
   <h2>📦 データ移動</h2>
@@ -2773,18 +2838,92 @@ document.getElementById('csv-btn').onclick = exportCSV;
 // === 印刷 ===
 document.getElementById('print-btn').onclick = () => {
   hidePopover && hidePopover();
+  document.getElementById('print-current-sheet-label').textContent =
+    '(' + (state.activeSheet === 'pharmacist' ? '薬剤師' : '事務') + ')';
+  document.getElementById('print-dialog').showModal();
+};
+document.getElementById('cancel-print').onclick = () => document.getElementById('print-dialog').close();
+document.getElementById('do-print').onclick = () => {
+  const scope = document.querySelector('input[name="print-scope"]:checked').value;
+  const includeSummary = document.getElementById('print-include-summary').checked;
+  document.getElementById('print-dialog').close();
+  setTimeout(() => doPrint(scope, includeSummary), 150);
+};
+
+function doPrint(scope, includeSummary) {
   const [y, m] = state.currentCycle.split('-').map(Number);
   const eY = m === 12 ? y + 1 : y;
   const eM = m === 12 ? 1 : m + 1;
-  const sheetLabel = state.activeSheet === 'pharmacist' ? '薬剤師' : '事務';
   const modeLabel = state.uiMode === 'rest' ? '休み決め' : state.uiMode === 'time' ? '時間決め' : '最終調整';
-  document.getElementById('print-title').textContent =
-    `${sheetLabel}シフト表 (${modeLabel})`;
-  document.getElementById('print-meta').textContent =
-    `${y}年${m}月度 ${m}/16 〜 ${eM === 1 && eY !== y ? eY + '年' : ''}${eM}/15 | ${new Date().toLocaleDateString('ja-JP')} 出力`;
-  // Chrome の印刷ダイアログを開く
-  window.print();
-};
+  const dateMeta = `${y}年${m}月度 ${m}/16 〜 ${eM === 1 && eY !== y ? eY + '年' : ''}${eM}/15 | ${new Date().toLocaleDateString('ja-JP')} 出力`;
+
+  if (includeSummary) document.body.classList.add('print-with-summary');
+
+  if (scope === 'current') {
+    const sheetLabel = state.activeSheet === 'pharmacist' ? '薬剤師' : '事務';
+    document.getElementById('print-title').textContent = `${sheetLabel}シフト表 (${modeLabel})`;
+    document.getElementById('print-meta').textContent = dateMeta;
+  } else {
+    // 両シート印刷: print-multi-container にクローンを並べる
+    const container = document.getElementById('print-multi-container');
+    container.innerHTML = '';
+    const originalSheet = state.activeSheet;
+
+    for (const sheetName of ['pharmacist', 'office']) {
+      state.activeSheet = sheetName;
+      renderGrid();
+      renderSummary();
+
+      const label = sheetName === 'pharmacist' ? '薬剤師' : '事務';
+      const section = document.createElement('section');
+      section.className = 'print-sheet';
+
+      const title = document.createElement('div');
+      title.className = 'print-sheet-title';
+      title.textContent = `${label}シフト表 (${modeLabel})`;
+      section.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'print-sheet-meta';
+      meta.textContent = dateMeta;
+      section.appendChild(meta);
+
+      // グリッドをクローン (id 重複回避のため id 属性をすべて削除)
+      const gridClone = document.getElementById('grid-container').cloneNode(true);
+      gridClone.removeAttribute('id');
+      gridClone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+      section.appendChild(gridClone);
+
+      // サマリー (オプション)
+      if (includeSummary) {
+        const target = state.uiMode === 'rest' ? 'rest-summary' : 'time-summary';
+        const src = document.getElementById(target);
+        if (src && !src.hidden) {
+          const clone = src.cloneNode(true);
+          clone.hidden = false;
+          clone.removeAttribute('id');
+          clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+          section.appendChild(clone);
+        }
+      }
+
+      container.appendChild(section);
+    }
+
+    state.activeSheet = originalSheet;
+    render();
+    document.body.classList.add('print-multi');
+  }
+
+  setTimeout(() => window.print(), 150);
+}
+
+// 印刷後にクラスとクローンをクリア
+window.addEventListener('afterprint', () => {
+  document.body.classList.remove('print-multi', 'print-with-summary');
+  const container = document.getElementById('print-multi-container');
+  if (container) container.innerHTML = '';
+});
 
 // === 手動アップデート確認 ===
 // localStorageは保持されるので、入力データは消えない。
