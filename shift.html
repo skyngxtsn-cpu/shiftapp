@@ -66,6 +66,10 @@
   tr.divider td { border-top: 2px solid #999; }
   tr.required td, tr.available td { font-size: 11px; padding: 2px; background: #fafafa; }
   tr.required td.name, tr.available td.name { background: #f0f0f0; }
+  td.req-editable { cursor: pointer; }
+  td.req-editable:hover { outline: 2px solid #4a90e2; outline-offset: -2px; background: #e7f0fd; }
+  td.req-overridden { background: #fff3cd !important; color: #855700 !important; font-weight: bold !important; box-shadow: inset 0 0 0 2px #d4a017 !important; position: relative; }
+  td.req-overridden::after { content: '★'; position: absolute; top: -2px; right: 1px; font-size: 8px; line-height: 1; color: #c47b00; }
   td.short { background: #ffb3b3; color: #c00; font-weight: bold; }
   td.ok { background: #d4f4d4; color: #060; }
   td.zero-need { background: #f0f0f0; color: #999; }
@@ -692,6 +696,8 @@ function migrate(d) {
     }
     // パート週引き継ぎ時間の補完
     if (!sheet.partCarryover) sheet.partCarryover = {};
+    // 日付ごとの必要人数オーバーライド
+    if (!sheet.dailyRequiredOverride) sheet.dailyRequiredOverride = {};
     if (!sheet.settings.personTypes) sheet.settings.personTypes = defaultPersonTypes();
     if (!sheet.settings.personTypes['ヘルプ']) sheet.settings.personTypes['ヘルプ'] = { kind: 'helper' };
     if (!Array.isArray(sheet.people)) sheet.people = [];
@@ -758,7 +764,29 @@ function isClosed(d, dk) {
 }
 function effectiveRequired(d, dk) {
   if (isClosed(d, dk)) return 0;
+  const ov = getDailyRequiredOverride(dk);
+  if (ov !== undefined) return ov;
   return ss().settings.weekdays[d.getDay()].required;
+}
+// 日付ごとの必要人数オーバーライド
+function getDailyRequiredOverride(dk) {
+  return ss().dailyRequiredOverride?.[state.currentCycle]?.[dk];
+}
+function hasDailyRequiredOverride(dk) {
+  return getDailyRequiredOverride(dk) !== undefined;
+}
+function setDailyRequiredOverride(dk, n) {
+  if (!ss().dailyRequiredOverride) ss().dailyRequiredOverride = {};
+  if (!ss().dailyRequiredOverride[state.currentCycle]) ss().dailyRequiredOverride[state.currentCycle] = {};
+  ss().dailyRequiredOverride[state.currentCycle][dk] = n;
+  saveState();
+}
+function clearDailyRequiredOverride(dk) {
+  const co = ss().dailyRequiredOverride;
+  if (!co || !co[state.currentCycle]) return;
+  delete co[state.currentCycle][dk];
+  if (Object.keys(co[state.currentCycle]).length === 0) delete co[state.currentCycle];
+  saveState();
 }
 function effectiveOffValue(d, dk) {
   if (isClosed(d, dk)) return 0;
@@ -1222,11 +1250,18 @@ function renderGrid() {
   }
 
   if (isRest) {
-    html += '<tr class="required divider"><td class="name">必要</td>';
+    html += '<tr class="required divider"><td class="name">必要 <small style="font-size:9px;color:#888;font-weight:normal;">クリックで個別変更</small></td>';
     for (const d of dates) {
       const dk = dateKey(d);
       const req = effectiveRequired(d, dk);
-      html += `<td class="${req === 0 ? 'zero-need' : ''}">${req || '-'}</td>`;
+      const closed = isClosed(d, dk);
+      const overridden = hasDailyRequiredOverride(dk);
+      const classes = [];
+      if (req === 0) classes.push('zero-need');
+      if (overridden && !closed) classes.push('req-overridden');
+      if (!closed) classes.push('req-editable');
+      const dataAttr = !closed ? ` data-req-date="${dk}"` : '';
+      html += `<td class="${classes.join(' ')}"${dataAttr}>${req || '-'}</td>`;
     }
     html += '<td></td><td></td></tr>';
     html += '<tr class="available"><td class="name">出勤可</td>';
@@ -1247,6 +1282,17 @@ function renderGrid() {
   const tbl = document.getElementById('shift-grid');
   tbl.innerHTML = html;
 
+  // 「必要」行のクリックで個別必要人数を変更
+  tbl.querySelectorAll('td.req-editable').forEach(td => {
+    td.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const dk = td.dataset.reqDate;
+      if (!dk) return;
+      const [y, m, d] = dk.split('-').map(Number);
+      const date = new Date(y, m-1, d);
+      editDailyRequired(dk, date);
+    });
+  });
   tbl.querySelectorAll('td.cell').forEach(td => {
     const dk0 = td.dataset.date;
     const pid0 = td.dataset.person;
@@ -1307,6 +1353,32 @@ function renderGrid() {
       }
     });
   });
+}
+
+// 必要人数の個別編集ダイアログ
+function editDailyRequired(dk, date) {
+  const wd = ss().settings.weekdays[date.getDay()];
+  const def = wd.required;
+  const cur = effectiveRequired(date, dk);
+  const overridden = hasDailyRequiredOverride(dk);
+  const msg = `${date.getMonth()+1}/${date.getDate()}(${WD[date.getDay()]}) の必要人数
+
+現在: ${cur}人 ${overridden ? '(個別設定 ★)' : '(曜日デフォルト)'}
+曜日デフォルト: ${def}人
+
+数字を入れて OK で個別設定、
+空欄で OK → 曜日デフォルトに戻す`;
+  const input = prompt(msg, String(cur));
+  if (input === null) return; // キャンセル
+  const trimmed = input.trim();
+  if (trimmed === '') {
+    clearDailyRequiredOverride(dk);
+  } else {
+    const num = parseInt(trimmed, 10);
+    if (isNaN(num) || num < 0) { alert('0以上の数字を入れてください'); return; }
+    setDailyRequiredOverride(dk, num);
+  }
+  render();
 }
 
 function groupByWeek(dates) {
