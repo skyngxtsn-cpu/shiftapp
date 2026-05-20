@@ -371,8 +371,8 @@ function defaultShiftPatterns() {
     { id: 'sat',       name: '土曜',    start: '09:00', end: '13:30', breakMin: 0,  color: '#ffd9b3', forParts: false },
     { id: 'sat_early', name: '土曜早',  start: '08:30', end: '13:30', breakMin: 0,  color: '#ffcc80', forParts: false },
     { id: 'sat_late',  name: '土曜遅',  start: '09:30', end: '13:30', breakMin: 0,  color: '#c0a8ff', forParts: false },
-    { id: 'half_am',   name: '半日早',  start: '09:00', end: '14:00', breakMin: 0,  color: '#ffd0d9', forParts: false },
-    { id: 'half_pm',   name: '半日遅',  start: '14:00', end: '19:00', breakMin: 0,  color: '#c8f0e0', forParts: false },
+    { id: 'half_am',   name: '半日早',  start: '09:00', end: '14:00', breakMin: 0,  color: '#ffd0d9', forParts: false, halfDay: true },
+    { id: 'half_pm',   name: '半日遅',  start: '14:00', end: '19:00', breakMin: 0,  color: '#c8f0e0', forParts: false, halfDay: true },
     { id: 'help_default', name: 'ヘルプ', start: '10:00', end: '18:00', breakMin: 60, color: '#ffdcaa', forParts: false },
     { id: 'paid',      name: '有給',    start: '09:00', end: '18:00', breakMin: 60, color: '#ffccdd', forParts: false },
     // パート用デフォルトパターン
@@ -557,9 +557,12 @@ function migrate(d) {
         if (!existingIds.has(pat.id)) sheet.settings.shiftPatterns.push(pat);
       }
     }
-    // forParts フラグの補完
+    // forParts / halfDay フラグの補完
     for (const pat of sheet.settings.shiftPatterns) {
       if (typeof pat.forParts !== 'boolean') pat.forParts = false;
+      if (typeof pat.halfDay !== 'boolean') {
+        pat.halfDay = (pat.id === 'half_am' || pat.id === 'half_pm');
+      }
     }
     // パート週引き継ぎ時間の補完
     if (!sheet.partCarryover) sheet.partCarryover = {};
@@ -634,6 +637,18 @@ function effectiveRequired(d, dk) {
 function effectiveOffValue(d, dk) {
   if (isClosed(d, dk)) return 0;
   return ss().settings.weekdays[d.getDay()].offValue;
+}
+// セルの「休み価値」: 完全休 (off) + 半日勤務パターン (0.5) を合算
+function cellRestValue(v, d, dk) {
+  if (isOff(v)) return effectiveOffValue(d, dk);
+  if (isWork(v)) {
+    const id = patternIdOf(v);
+    if (id) {
+      const pat = patternById(id);
+      if (pat && pat.halfDay && !isClosed(d, dk)) return 0.5;
+    }
+  }
+  return 0;
 }
 function totalPeople() { return ss().people.length; }
 function escapeHtml(s) {
@@ -983,7 +998,7 @@ function renderGrid() {
           else if (isWork(val)) { cls = 'cell work'; txt = '出'; }
         }
         html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
-        if (isOff(val)) restSum += effectiveOffValue(d, dk);
+        if (!isHelperRow) restSum += cellRestValue(val, d, dk);
       } else if (isTime) {
         let cls = 'cell', txt = '', style = '';
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
@@ -1214,7 +1229,7 @@ function renderRestSummary() {
       for (const d of week) {
         const dk = dateKey(d);
         if (isClosed(d, dk)) continue;
-        if (isOff(getCell(state.currentCycle, dk, p.id))) rest += effectiveOffValue(d, dk);
+        rest += cellRestValue(getCell(state.currentCycle, dk, p.id), d, dk);
       }
       if (rest < minRest) restProblems.push({ p, week, rest });
     }
@@ -1740,7 +1755,7 @@ document.getElementById('part-weekly-limit').addEventListener('input', (e) => {
 function renderPatternsTable() {
   const tbl = document.getElementById('patterns-table');
   const total = ss().settings.shiftPatterns.length;
-  let html = '<thead><tr><th title="ドラッグで並び替え">⇅</th><th>名前</th><th>開始</th><th>終了</th><th>休憩(分)</th><th>計算h</th><th>色</th><th title="パート用 (パートの自動割当に使う)">パ</th><th></th></tr></thead><tbody>';
+  let html = '<thead><tr><th title="ドラッグで並び替え">⇅</th><th>名前</th><th>開始</th><th>終了</th><th>休憩(分)</th><th>計算h</th><th>色</th><th title="パート用 (パートの自動割当に使う)">パ</th><th title="半日勤務扱い (このパターンが入ると週休チェックで0.5日休みとカウント)">半</th><th></th></tr></thead><tbody>';
   ss().settings.shiftPatterns.forEach((p, i) => {
     html += `<tr data-id="${p.id}">
       <td class="drag-handle" draggable="true" title="ドラッグして並び替え">⋮⋮</td>
@@ -1751,6 +1766,7 @@ function renderPatternsTable() {
       <td class="pat-hours" data-id="${p.id}">${patternHours(p).toFixed(1)}h</td>
       <td><input type="color" data-id="${p.id}" data-field="color" value="${p.color || '#ffffff'}"></td>
       <td style="text-align:center;"><input type="checkbox" data-id="${p.id}" data-field="forParts" ${p.forParts ? 'checked' : ''}></td>
+      <td style="text-align:center;"><input type="checkbox" data-id="${p.id}" data-field="halfDay" ${p.halfDay ? 'checked' : ''}></td>
       <td><button class="del-pat danger" data-id="${p.id}">×</button></td>
     </tr>`;
   });
@@ -1765,6 +1781,7 @@ function renderPatternsTable() {
       if (!pat) return;
       if (field === 'breakMin') pat[field] = Math.max(0, parseInt(inp.value) || 0);
       else if (field === 'forParts') pat.forParts = inp.checked;
+      else if (field === 'halfDay') pat.halfDay = inp.checked;
       else pat[field] = inp.value;
       saveState();
       // 計算hセルだけピンポイント更新（テーブル全体は再描画しない）
