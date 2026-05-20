@@ -309,6 +309,31 @@
 
 <div id="pattern-popover" hidden></div>
 
+<dialog id="clear-dialog">
+  <h2>🗑 シフトデータ削除</h2>
+  <p class="hint" style="margin-bottom:10px;">現在の周期 (<span id="clear-cycle-label" style="font-weight:bold;"></span>) のデータを消去します</p>
+
+  <label style="display:block;margin:6px 0;padding:10px 12px;background:#f5f5f5;border-radius:4px;cursor:pointer;border:1px solid #ddd;">
+    <input type="radio" name="clear-type" value="except-locked" checked>
+    <b>🔒 ロック済み以外をクリア</b> (推奨)
+    <div style="font-size:11px;color:#666;margin-left:24px;margin-top:2px;">ロック中のセルとその時間調整は<b>維持</b>、それ以外を消去</div>
+  </label>
+  <label style="display:block;margin:6px 0;padding:10px 12px;background:#fff5f5;border-radius:4px;cursor:pointer;border:1px solid #f0a8a8;">
+    <input type="radio" name="clear-type" value="all">
+    <b>📦 全クリア</b>
+    <div style="font-size:11px;color:#666;margin-left:24px;margin-top:2px;">休/出/ヘ/有/時間/ロック 全部消去 (ロック中のセルも消える)</div>
+  </label>
+
+  <div id="clear-stats" style="margin:12px 0;padding:8px 12px;background:#f0f0f0;border-radius:4px;font-size:12px;line-height:1.6;"></div>
+
+  <p class="hint" style="color:#c0392b;">⚠ この操作は元に戻せません。不安なら先に 📷 スナップショットで保存してください。</p>
+
+  <div style="margin-top:14px;display:flex;justify-content:space-between;gap:8px;">
+    <button id="clear-cancel">キャンセル</button>
+    <button id="clear-execute" class="danger" style="background:#c0392b;border-color:#c0392b;color:#fff;font-weight:bold;">削除実行</button>
+  </div>
+</dialog>
+
 <dialog id="print-dialog">
   <h2>🖨 印刷オプション</h2>
   <div style="margin:12px 0;">
@@ -2240,37 +2265,89 @@ document.getElementById('mode-adjust').onclick = () => { hidePopover(); state.ui
 document.getElementById('lock-edit-btn').onclick = () => { hidePopover(); state.lockEditMode = !state.lockEditMode; saveState(); render(); };
 
 // === 全クリア (現在の周期のシフトデータを白紙に) ===
+// === シフトデータ削除 (全クリア / ロック以外クリア) ===
 document.getElementById('clear-cycle-btn').onclick = () => {
   hidePopover();
+  document.getElementById('clear-cycle-label').textContent = state.currentCycle;
+  updateClearStats();
+  document.getElementById('clear-dialog').showModal();
+};
+
+function updateClearStats() {
   const c = state.currentCycle;
-  const cellCount = ss().cycles[c] ? Object.values(ss().cycles[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
-  const overrideCount = ss().timeOverrides && ss().timeOverrides[c] ? Object.values(ss().timeOverrides[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
-  const lockCount = ss().locks && ss().locks[c] ? Object.values(ss().locks[c]).reduce((s, day) => s + Object.keys(day).length, 0) : 0;
-  const msg = `⚠ 現在の周期 (${c}) のシフトデータを全て白紙に戻します。
+  const cycles = ss().cycles?.[c] || {};
+  const lockMap = ss().locks?.[c] || {};
+  const overrides = ss().timeOverrides?.[c] || {};
 
-【消去されるもの】
-・休 / 出 / ヘ / ヘルプ要員 の状態 (${cellCount} セル)
-・パターン割当・時間設定 (${overrideCount} 件の時間調整)
-・ロック状態 (${lockCount} 件)
+  let cellCount = 0;
+  let lockedCellsCount = 0;
+  for (const dk of Object.keys(cycles)) {
+    for (const pid of Object.keys(cycles[dk])) {
+      cellCount++;
+      if (lockMap[dk] && lockMap[dk][pid]) lockedCellsCount++;
+    }
+  }
+  let overrideCount = 0;
+  let lockedOverrideCount = 0;
+  for (const dk of Object.keys(overrides)) {
+    for (const pid of Object.keys(overrides[dk])) {
+      overrideCount++;
+      if (lockMap[dk] && lockMap[dk][pid]) lockedOverrideCount++;
+    }
+  }
+  const lockCount = Object.values(lockMap).reduce((s, day) => s + Object.keys(day).length, 0);
 
-【保持されるもの】
-・メンバー一覧
-・各種設定 (パターン定義、曜日ルール、祝日)
-・スナップショット (バックアップ)
-・他の周期のデータ
+  document.getElementById('clear-stats').innerHTML = `
+    <b>現在のデータ:</b><br>
+    ・セル: <b>${cellCount}</b>個 (うちロック済み <b style="color:#c47b00;">${lockedCellsCount}</b>個)<br>
+    ・時間調整: <b>${overrideCount}</b>件 (うちロック済み <b style="color:#c47b00;">${lockedOverrideCount}</b>件)<br>
+    ・ロック数: <b>${lockCount}</b>件
+  `;
+}
 
-⚠ この操作は元に戻せません。
-不安な場合は先に 📷 スナップショットで保存してください。
+document.getElementById('clear-cancel').onclick = () =>
+  document.getElementById('clear-dialog').close();
 
-本当に白紙に戻しますか?`;
-  if (!confirm(msg)) return;
-  // 二重確認 (誤クリック防止)
-  if (!confirm(`もう一度確認: ${c} のシフトを完全消去します。よろしいですか?`)) return;
-  delete ss().cycles[c];
-  if (ss().timeOverrides) delete ss().timeOverrides[c];
-  if (ss().locks) delete ss().locks[c];
+document.getElementById('clear-execute').onclick = () => {
+  const type = document.querySelector('input[name="clear-type"]:checked').value;
+  const c = state.currentCycle;
+
+  if (type === 'all') {
+    if (!confirm(`【全クリア】\n周期 ${c} の全データ (ロック含む) を完全消去します。\n本当によろしいですか?`)) return;
+    delete ss().cycles[c];
+    if (ss().timeOverrides) delete ss().timeOverrides[c];
+    if (ss().locks) delete ss().locks[c];
+  } else {
+    // except-locked: ロックされていないセル + その時間調整 を消去
+    if (!confirm(`【ロック以外をクリア】\n周期 ${c} のロックされていないセルと時間調整を消去します。\nロック中のセルは維持されます。\nよろしいですか?`)) return;
+    const cycles = ss().cycles?.[c];
+    const lockMap = ss().locks?.[c] || {};
+    if (cycles) {
+      for (const dk of Object.keys(cycles)) {
+        for (const pid of Object.keys(cycles[dk])) {
+          const locked = !!(lockMap[dk] && lockMap[dk][pid]);
+          if (!locked) delete cycles[dk][pid];
+        }
+        if (Object.keys(cycles[dk]).length === 0) delete cycles[dk];
+      }
+      if (Object.keys(cycles).length === 0) delete ss().cycles[c];
+    }
+    const overrides = ss().timeOverrides?.[c];
+    if (overrides) {
+      for (const dk of Object.keys(overrides)) {
+        for (const pid of Object.keys(overrides[dk])) {
+          const locked = !!(lockMap[dk] && lockMap[dk][pid]);
+          if (!locked) delete overrides[dk][pid];
+        }
+        if (Object.keys(overrides[dk]).length === 0) delete overrides[dk];
+      }
+      if (Object.keys(overrides).length === 0) delete ss().timeOverrides[c];
+    }
+    // locks は維持
+  }
   saveState();
   render();
+  document.getElementById('clear-dialog').close();
 };
 
 // === スナップショット ===
