@@ -1366,7 +1366,30 @@ function renderRestSummary() {
     h2 += '<ul>';
     for (const r of restProblems) {
       const ws = r.week[0], we = r.week[r.week.length-1];
-      h2 += `<li class="warn-msg"><b>${escapeHtml(r.p.name)}</b>: ${ws.getMonth()+1}/${ws.getDate()}〜${we.getMonth()+1}/${we.getDate()} 休み${r.rest}日 (不足${(minRest-r.rest).toFixed(1)}日)</li>`;
+      // この人がその週で「休めばOKだが必要人数を割る」日を抽出 → ヘルプ候補
+      const helpCands = [];
+      for (const d of r.week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        const v = getCell(state.currentCycle, dk, r.p.id);
+        if (isOff(v) || isHelp(v) || isPaid(v)) continue; // 既に休んでいる
+        const ov = effectiveOffValue(d, dk);
+        if (ov === 0) continue; // 休み価値 0 の曜日は意味なし
+        const avail = totalAvailableOnDay(dk);
+        const req = effectiveRequired(d, dk);
+        if (avail < req) continue; // 既に不足日(①で処理)、ここではスキップ
+        if (avail - 1 < req) {
+          // 余裕なし: 本人が休むと不足 → ヘルプ呼び替え対象
+          helpCands.push({ d, avail, req });
+        }
+      }
+      const helpHtml = helpCands.length > 0
+        ? `<div style="margin-left:18px;font-size:11px;color:#c47b00;background:#fff8e6;border-left:3px solid #d4a017;padding:3px 6px;margin-top:3px;border-radius:0 3px 3px 0;">
+             📞 ヘルプ候補日: ${helpCands.map(c => `<b>${c.d.getMonth()+1}/${c.d.getDate()}(${WD[c.d.getDay()]})</b> [必要${c.req}/可${c.avail}]`).join('、')}
+             <br><span style="color:#888;">↑ ヘルプが来ればこの日に ${escapeHtml(r.p.name)} さんが休める</span>
+           </div>`
+        : '';
+      h2 += `<li class="warn-msg"><b>${escapeHtml(r.p.name)}</b>: ${ws.getMonth()+1}/${ws.getDate()}〜${we.getMonth()+1}/${we.getDate()} 休み${r.rest}日 (不足${(minRest-r.rest).toFixed(1)}日)${helpHtml}</li>`;
     }
     h2 += '</ul>';
   }
