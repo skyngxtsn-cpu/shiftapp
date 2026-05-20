@@ -175,6 +175,7 @@
   <button id="settings-btn">⚙ 設定</button>
   <button id="export-btn">エクスポート</button>
   <button id="csv-btn">📊 CSV出力</button>
+  <button id="update-btn" title="サーバから最新版を取得して再読み込み">🔄 更新確認</button>
   <button id="import-btn">インポート</button>
   <input type="file" id="import-file" accept=".json" hidden>
 </header>
@@ -2522,6 +2523,39 @@ function exportCSV() {
 }
 
 document.getElementById('csv-btn').onclick = exportCSV;
+
+// === 手動アップデート確認 ===
+// localStorageは保持されるので、入力データは消えない。
+// 進行中のポップオーバー入力などは中断される可能性あり。
+document.getElementById('update-btn').onclick = async () => {
+  const msg = `サーバから最新版を取得して再読み込みします。
+
+【保持されるもの】
+・休/出/ヘ/有 などの入力データ全て
+・各種設定 (パターン・メンバー・曜日ルール等)
+・スナップショット (バックアップ)
+・引き継ぎ時間
+・ロック状態
+
+【リセットされるもの】
+・現在のポップオーバー (時間調整中など)
+・現在のモード (休み/時間/最終調整 → 初期化されます)
+
+続行しますか?`;
+  if (!confirm(msg)) return;
+
+  // Service Worker の更新チェック
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+    } catch (err) {
+      console.warn('SW update check failed:', err);
+    }
+  }
+  // 強制リロード (Service Worker は HTML をネットワーク優先で取得するので新版が来る)
+  window.location.reload();
+};
 document.getElementById('import-btn').onclick = () => document.getElementById('import-file').click();
 document.getElementById('import-file').onchange = (e) => {
   const f = e.target.files[0]; if (!f) return;
