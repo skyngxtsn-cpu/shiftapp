@@ -2758,6 +2758,35 @@ function autoAssignParts() {
 
 document.getElementById('auto-assign-btn').onclick = autoAssign;
 
+// 候補日を中心に「働き続けた場合の連勤日数」を計算 (半休=0.5, off/paid=リセット, 閉局=リセット, それ以外=1)
+function workStreakAround(p, candidateD) {
+  let before = 0;
+  let d = new Date(candidateD);
+  d.setDate(d.getDate() - 1);
+  while (true) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) break;
+    const v = getCell(state.currentCycle, dk, p.id);
+    if (isOff(v) || isPaid(v)) break;
+    if (isHalfOff(v)) before += 0.5;
+    else before += 1; // work/work:..../help/null は全て「出てる」扱い
+    d.setDate(d.getDate() - 1);
+  }
+  let after = 0;
+  d = new Date(candidateD);
+  d.setDate(d.getDate() + 1);
+  while (true) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) break;
+    const v = getCell(state.currentCycle, dk, p.id);
+    if (isOff(v) || isPaid(v)) break;
+    if (isHalfOff(v)) after += 0.5;
+    else after += 1;
+    d.setDate(d.getDate() + 1);
+  }
+  return before + 1 + after; // 候補日 (1日) を働いた場合の総連勤
+}
+
 // === 休み自動割当 (各メンバーに週1日休み) ===
 function autoAssignRest() {
   const msg = `各メンバーに週1日休みを自動配置します。
@@ -2769,6 +2798,7 @@ function autoAssignRest() {
 ・閉局・祝日は対象外
 
 【ソフト制約 (スコアで考慮)】
+・🆕 連勤を避ける (半休=0.5でカウント、5連勤超は強く休ませる)
 ・同じ曜日に休みが集中しないよう分散
 ・同じ日に多人数休まないよう調整
 ・必要人数ぎりぎりの日は後回し、余裕のある日を優先
@@ -2776,6 +2806,8 @@ function autoAssignRest() {
 
 【対象】
 ・正社員 (パートは別ロジック、ヘルプ要員は対象外)
+
+⚠ 必要人数の関係で休めない週は空白のまま残ります
 
 実行しますか?`;
   if (!confirm(msg)) return;
@@ -2856,12 +2888,21 @@ function autoAssignRest() {
           return isOff(v2) || isHalfOff(v2);
         }).length;
 
+        // 連勤ボーナス: この日働くと連勤が長くなる → 休む優先度を強く上げる
+        const streakIfWorking = workStreakAround(p, d);
+        let streakBonus = 0;
+        if (streakIfWorking > 5) streakBonus = -100;       // 5連勤超 → 必ずここで休む
+        else if (streakIfWorking > 4.5) streakBonus = -40; // 5連勤ぴったり → 強く休ませる
+        else if (streakIfWorking > 3.5) streakBonus = -12; // 4連勤 → 中程度の優先
+        else if (streakIfWorking > 2.5) streakBonus = -3;  // 3連勤 → 軽い優先
+
         // 低スコアほど望ましい
         const score = sameWdCount * 3  // 同じ曜日連発を強く抑制
                     + othersResting * 1.5 // 同日多人数休みを軽く抑制
                     - slack * 0.5 // 余裕がある日を優先 (マイナスでスコア下げる)
+                    + streakBonus // 連勤ボーナス
                     + Math.random() * 1.0; // ランダムタイブレーカー
-        candidates.push({ d, dk, score });
+        candidates.push({ d, dk, score, streakIfWorking });
       }
 
       if (candidates.length === 0) continue;
