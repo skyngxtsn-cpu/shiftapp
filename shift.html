@@ -263,6 +263,7 @@
     <button id="mode-time" class="mode-btn">時間決め</button>
     <button id="mode-adjust" class="mode-btn">最終調整</button>
   </div>
+  <button id="auto-rest-btn" hidden title="各メンバーに週1日休みを自動配置">🎲 休み自動割当</button>
   <button id="auto-assign-btn" hidden>🎲 自動割り当て</button>
   <button id="lock-edit-btn">🔒 ロック編集</button>
   <button id="snapshot-btn">📷 スナップショット</button>
@@ -1041,6 +1042,7 @@ function renderModeToggle() {
   document.getElementById('rest-summary').hidden = state.uiMode !== 'rest';
   document.getElementById('time-summary').hidden = !(state.uiMode === 'time' || state.uiMode === 'adjust');
   document.getElementById('auto-assign-btn').hidden = state.uiMode !== 'time';
+  document.getElementById('auto-rest-btn').hidden = state.uiMode !== 'rest';
   const lockBtn = document.getElementById('lock-edit-btn');
   if (state.lockEditMode) {
     lockBtn.classList.add('lock-edit-active');
@@ -2755,6 +2757,128 @@ function autoAssignParts() {
 }
 
 document.getElementById('auto-assign-btn').onclick = autoAssign;
+
+// === 休み自動割当 (各メンバーに週1日休み) ===
+function autoAssignRest() {
+  const msg = `各メンバーに週1日休みを自動配置します。
+
+【ハード制約 (必ず守る)】
+・必要人数を割らない日のみ選択
+・既存の 休/半/出/ヘ/有 は維持
+・ロック済みセルは触らない
+・閉局・祝日は対象外
+
+【ソフト制約 (スコアで考慮)】
+・同じ曜日に休みが集中しないよう分散
+・同じ日に多人数休まないよう調整
+・必要人数ぎりぎりの日は後回し、余裕のある日を優先
+・週休不足の人から順に処理
+
+【対象】
+・正社員 (パートは別ロジック、ヘルプ要員は対象外)
+
+実行しますか?`;
+  if (!confirm(msg)) return;
+
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+  const weeks = groupByWeek(dates);
+  const minRest = ss().settings.minWeeklyRest;
+
+  // 全周期の各メンバー × 曜日 の現在の休み回数を集計 (分散用)
+  const weekdayRestCount = {};
+  for (const p of ss().people) {
+    if (isHelperPerson(p)) continue;
+    weekdayRestCount[p.id] = {};
+    for (const d of dates) {
+      const dk = dateKey(d);
+      if (isClosed(d, dk)) continue;
+      const v = getCell(state.currentCycle, dk, p.id);
+      if (isOff(v) || isHalfOff(v)) {
+        const wd = d.getDay();
+        weekdayRestCount[p.id][wd] = (weekdayRestCount[p.id][wd] || 0) + 1;
+      }
+    }
+  }
+
+  for (const week of weeks) {
+    // この週で休み不足の人を抽出
+    const peopleNeed = [];
+    for (const p of ss().people) {
+      if (isHelperPerson(p)) continue;
+      if (p.type === 'パート') continue; // パートは別ロジック
+      let rest = 0;
+      for (const d of week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        rest += cellRestValue(getCell(state.currentCycle, dk, p.id), d, dk);
+      }
+      if (rest < minRest) peopleNeed.push({ p, rest });
+    }
+    // 不足が大きい人を優先
+    peopleNeed.sort((a, b) => a.rest - b.rest);
+
+    for (const item of peopleNeed) {
+      const p = item.p;
+      // 再計算 (途中で更新されている可能性)
+      let rest = 0;
+      for (const d of week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        rest += cellRestValue(getCell(state.currentCycle, dk, p.id), d, dk);
+      }
+      if (rest >= minRest) continue;
+
+      // 候補日抽出
+      const candidates = [];
+      for (const d of week) {
+        const dk = dateKey(d);
+        if (isClosed(d, dk)) continue;
+        if (isCellLocked(dk, p.id)) continue;
+        const v = getCell(state.currentCycle, dk, p.id);
+        if (v !== null) continue; // 既に何か入っている
+        const ov = effectiveOffValue(d, dk);
+        if (ov === 0) continue; // 休み価値ゼロの曜日
+
+        // ハード制約: 必要人数を割らないか
+        const avail = totalAvailableOnDay(dk);
+        const req = effectiveRequired(d, dk);
+        if (avail - 1 < req) continue;
+
+        // ソフトスコア
+        const wd = d.getDay();
+        const sameWdCount = weekdayRestCount[p.id][wd] || 0;
+        const slack = avail - req; // 余裕
+        const othersResting = ss().people.filter(p2 => {
+          if (p2.id === p.id) return false;
+          if (isHelperPerson(p2)) return false;
+          const v2 = getCell(state.currentCycle, dk, p2.id);
+          return isOff(v2) || isHalfOff(v2);
+        }).length;
+
+        // 低スコアほど望ましい
+        const score = sameWdCount * 3  // 同じ曜日連発を強く抑制
+                    + othersResting * 1.5 // 同日多人数休みを軽く抑制
+                    - slack * 0.5 // 余裕がある日を優先 (マイナスでスコア下げる)
+                    + Math.random() * 1.0; // ランダムタイブレーカー
+        candidates.push({ d, dk, score });
+      }
+
+      if (candidates.length === 0) continue;
+
+      // 最低スコアを選ぶ
+      candidates.sort((a, b) => a.score - b.score);
+      const chosen = candidates[0];
+      setCell(state.currentCycle, chosen.dk, p.id, 'off');
+      const wd = chosen.d.getDay();
+      weekdayRestCount[p.id][wd] = (weekdayRestCount[p.id][wd] || 0) + 1;
+    }
+  }
+
+  saveState();
+  render();
+}
+document.getElementById('auto-rest-btn').onclick = autoAssignRest;
 
 document.getElementById('prev').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, -1); saveState(); render(); };
 document.getElementById('next').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, +1); saveState(); render(); };
