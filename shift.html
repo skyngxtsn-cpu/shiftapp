@@ -55,6 +55,7 @@
   td.cell.paid { background: #ffccdd; color: #8a3a6b; font-weight: bold; }
   td.cell.paid-pat { background: #ffccdd; color: #8a3a6b; font-size: 10px; padding: 1px 2px; border: 2px solid #c070a0; }
   td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
+  td.cell.locked-work { box-shadow: inset 0 0 0 3px #4a90e2; position: relative; }
   td.cell .lock-icon { position: absolute; top: 0; right: 1px; font-size: 9px; line-height: 1; pointer-events: none; }
   body.lock-edit-mode td.cell { cursor: pointer; }
   body.lock-edit-mode td.cell:hover { outline: 3px dashed #d4a017 !important; }
@@ -1046,7 +1047,7 @@ function renderModeToggle() {
   const lockBtn = document.getElementById('lock-edit-btn');
   if (state.lockEditMode) {
     lockBtn.classList.add('lock-edit-active');
-    lockBtn.textContent = '🔓 ロック編集を終了';
+    lockBtn.textContent = '🔓 ロック編集を終了 (空→🔒完全→📌出勤→空)';
     document.body.classList.add('lock-edit-mode');
   } else {
     lockBtn.classList.remove('lock-edit-active');
@@ -1100,23 +1101,38 @@ function countUnavailableOnDay(dk) {
 }
 function isHelperPerson(p) { return p && p.type === 'ヘルプ'; }
 
-// === ロック関連 ===
-function isCellLocked(dk, pid) {
-  return !!ss().locks?.[state.currentCycle]?.[dk]?.[pid];
+// === ロック関連 (2種類: 'full' = 完全, 'work' = 出勤のみ) ===
+function getCellLock(dk, pid) {
+  const v = ss().locks?.[state.currentCycle]?.[dk]?.[pid];
+  if (v === true) return 'full';   // 旧データ互換 (boolean true = 完全ロック)
+  return v || null;                // 'full' | 'work' | null
 }
+function isCellLocked(dk, pid) { return getCellLock(dk, pid) !== null; }
+function isCellFullLocked(dk, pid) { return getCellLock(dk, pid) === 'full'; }
+function isCellWorkLocked(dk, pid) { return getCellLock(dk, pid) === 'work'; }
 function setCellLock(dk, pid, value) {
+  // value: 'full' | 'work' | null
   if (!ss().locks) ss().locks = {};
   const c = state.currentCycle;
   if (!ss().locks[c]) ss().locks[c] = {};
   if (!ss().locks[c][dk]) ss().locks[c][dk] = {};
   if (value) {
-    ss().locks[c][dk][pid] = true;
+    ss().locks[c][dk][pid] = value;
   } else {
     delete ss().locks[c][dk][pid];
     if (Object.keys(ss().locks[c][dk]).length === 0) delete ss().locks[c][dk];
     if (Object.keys(ss().locks[c]).length === 0) delete ss().locks[c];
   }
   saveState();
+}
+// ロック編集モードのクリックで循環: null → full → work → null
+function cycleCellLock(dk, pid) {
+  const cur = getCellLock(dk, pid);
+  let next;
+  if (cur === null) next = 'full';
+  else if (cur === 'full') next = 'work';
+  else next = null;
+  setCellLock(dk, pid, next);
 }
 function regularsCount() { return ss().people.filter(p => !isHelperPerson(p)).length; }
 function helpersInOnDay(dk) {
@@ -1336,23 +1352,27 @@ function renderGrid() {
   tbl.querySelectorAll('td.cell').forEach(td => {
     const dk0 = td.dataset.date;
     const pid0 = td.dataset.person;
-    if (isCellLocked(dk0, pid0)) {
+    const lk0 = getCellLock(dk0, pid0);
+    if (lk0 === 'full') {
       td.classList.add('locked');
       td.insertAdjacentHTML('beforeend', '<span class="lock-icon">🔒</span>');
+    } else if (lk0 === 'work') {
+      td.classList.add('locked-work');
+      td.insertAdjacentHTML('beforeend', '<span class="lock-icon">📌</span>');
     }
     td.addEventListener('click', (ev) => {
       ev.stopPropagation();
       const dk = td.dataset.date;
       const pid = td.dataset.person;
-      // ロック編集モード: クリックでロック切替 (値は変更しない)
+      // ロック編集モード: クリックで 空→🔒完全→📌出勤→空 と循環
       if (state.lockEditMode) {
-        setCellLock(dk, pid, !isCellLocked(dk, pid));
+        cycleCellLock(dk, pid);
         render();
         return;
       }
-      // ロック中のセルは通常クリックでは変更不可
-      // ただし最終調整モードでは「時間確認のみ」(編集不可) で開ける
-      if (isCellLocked(dk, pid)) {
+      const lockType = getCellLock(dk, pid);
+      // 🔒完全ロック: 全モードで編集不可 (最終調整は閲覧のみ)
+      if (lockType === 'full') {
         if (state.uiMode === 'adjust') {
           const cur2 = getCell(state.currentCycle, dk, pid);
           if (!isOff(cur2)) {
@@ -1363,6 +1383,10 @@ function renderGrid() {
           }
         }
         return;
+      }
+      // 📌出勤ロック: 休み決め(休/出の決定)は不可、時間・最終調整は編集可
+      if (lockType === 'work' && state.uiMode === 'rest') {
+        return; // 決定は固定
       }
       const cur = getCell(state.currentCycle, dk, pid);
       const person = ss().people.find(x => x.id === pid);
@@ -2480,12 +2504,12 @@ function autoAssign() {
     if (sl.latePatternId) lateRoleIds.add(sl.latePatternId);
   }
 
-  // 時間オーバーライドをクリア (ロック済みセルの分は維持)
+  // 時間オーバーライドをクリア (完全ロックの分のみ維持。出勤ロックは時間再割当されるので消す)
   if (ss().timeOverrides && ss().timeOverrides[state.currentCycle]) {
     const cycleOverrides = ss().timeOverrides[state.currentCycle];
     for (const dkKey of Object.keys(cycleOverrides)) {
       for (const pidKey of Object.keys(cycleOverrides[dkKey])) {
-        if (!isCellLocked(dkKey, pidKey)) {
+        if (!isCellFullLocked(dkKey, pidKey)) {
           delete cycleOverrides[dkKey][pidKey];
         }
       }
@@ -2528,11 +2552,12 @@ function autoAssign() {
     const lockedPatternCount = {}; // patternId -> count of locked cells using it
     let lockedLateMembers = [];
 
-    // ロック済みセルを「割当済み」扱いにし、cnt にも反映 (正社員のみ)
+    // 完全ロック(full)済みセルのみ「割当済み」扱いにし、cnt にも反映 (正社員のみ)
+    // 出勤ロック(work)は時間の再割当対象なので avail に含める (ここではスキップ)
     for (const p of ss().people) {
       if (isHelperPerson(p)) continue;
       if (p.type === 'パート') continue; // パートは別ロジック
-      if (!isCellLocked(dk, p.id)) continue;
+      if (!isCellFullLocked(dk, p.id)) continue;
       const v = getCell(state.currentCycle, dk, p.id);
       if (isOff(v) || isHelp(v)) continue; // off/help は割当対象外なのでカウントだけ無視
       if (isWork(v)) {
@@ -2560,7 +2585,7 @@ function autoAssign() {
     const avail = ss().people.filter(p => {
       if (isHelperPerson(p)) return false;
       if (p.type === 'パート') return false; // パートは正社員ロジックの対象外
-      if (isCellLocked(dk, p.id)) return false; // ロックされている = 既に処理済み
+      if (isCellFullLocked(dk, p.id)) return false; // 完全ロックのみ除外 (出勤ロックは再割当対象)
       const v = getCell(state.currentCycle, dk, p.id);
       return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v);
     });
