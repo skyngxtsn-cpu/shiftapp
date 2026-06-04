@@ -1145,12 +1145,13 @@ function cycleCellLock(dk, pid) {
 }
 function regularsCount() { return ss().people.filter(p => !isHelperPerson(p)).length; }
 function helpersInOnDay(dk) {
-  // ヘルプ要員のうち、その日来てくれる人数 (work* 扱い)
+  // ヘルプ要員のうち、その日来てくれる人数 (work=+1, 半ヘ=+0.5)
   let c = 0;
   for (const p of ss().people) {
     if (!isHelperPerson(p)) continue;
     const v = getCell(state.currentCycle, dk, p.id);
-    if (isWork(v)) c++;
+    if (isWork(v)) c += 1;
+    else if (isHalfHelp(v)) c += 0.5;
   }
   return c;
 }
@@ -1199,8 +1200,9 @@ function renderGrid() {
       if (isRest) {
         let cls = 'cell', txt = '';
         if (isHelperRow) {
-          // ヘルプ要員: null=空(来ない), work=ヘ(+1)
+          // ヘルプ要員: null=空(来ない), work=ヘ+(終日+1), halfhelp=半ヘ+(半日+0.5)
           if (isWork(val)) { cls = 'cell help'; txt = 'ヘ+'; }
+          else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ+'; }
         } else {
           if (isOff(val)) { cls = 'cell off'; txt = '休'; }
           else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
@@ -1340,7 +1342,7 @@ function renderGrid() {
       const helpersIn = helpersInOnDay(dk);
       const req = effectiveRequired(d, dk);
       const cls = avail < req ? 'short' : 'ok';
-      const txt = helpersIn > 0 ? `${fmtNum(avail)}/${req}<br><small style="color:#c47b00;">+ヘ${helpersIn}</small>` : `${fmtNum(avail)}/${req}`;
+      const txt = helpersIn > 0 ? `${fmtNum(avail)}/${req}<br><small style="color:#c47b00;">+ヘ${fmtNum(helpersIn)}</small>` : `${fmtNum(avail)}/${req}`;
       html += `<td class="${cls}">${txt}</td>`;
     }
     html += '<td></td><td></td></tr>';
@@ -1406,8 +1408,10 @@ function renderGrid() {
       if (state.uiMode === 'rest') {
         let next;
         if (isHelperRow) {
-          // ヘルプ要員: 2状態循環 null → work → null
-          next = !cur ? 'work' : null;
+          // ヘルプ要員: 3状態循環 null → work(終日+1) → halfhelp(半日+0.5) → null
+          if (!cur) next = 'work';
+          else if (isWork(cur)) next = 'halfhelp';
+          else next = null;
         } else {
           // 通常: 7状態循環 null → off → halfoff → work → help → halfhelp → paid → null
           if (!cur) next = 'off';
