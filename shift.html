@@ -480,6 +480,12 @@
     <button id="add-pattern-btn">+ パターン追加</button>
   </div>
 
+  <h3>来店ヘルプの基本シフト</h3>
+  <p class="hint">他店から手伝いに来てくれるヘルプ（ヘ+）に自動で割り当てる時間。早出・遅出は割り当てません。時間はそのパターンを上の「シフトパターン」で編集してください。</p>
+  <div style="margin-top:4px;">
+    <select id="helper-in-pattern" style="font-size:13px;padding:3px 6px;min-width:180px;"></select>
+  </div>
+
   <h3>曜日ごとの自動割当ルール</h3>
   <p class="hint">🎲 自動割り当て の構成。時期によって変わる場合はここで編集してください。「なし」を選ぶとそのスロットは使われません。残り代替を指定すると日付の偶奇でローテーションされます（木曜の半日午前/午後など）。</p>
   <table class="patterns-table" id="slots-table"></table>
@@ -745,6 +751,8 @@ function migrate(d) {
     if (!sheet.dayNotes) sheet.dayNotes = {};
     if (!sheet.settings.personTypes) sheet.settings.personTypes = defaultPersonTypes();
     if (!sheet.settings.personTypes['ヘルプ']) sheet.settings.personTypes['ヘルプ'] = { kind: 'helper' };
+    // 来店ヘルプの基本シフト (既定: ヘルプパターン)
+    if (!sheet.settings.helperInPatternId) sheet.settings.helperInPatternId = 'help_default';
     if (!Array.isArray(sheet.people)) sheet.people = [];
     for (const p of sheet.people) {
       if (!p.type) p.type = '正社員';
@@ -1145,7 +1153,9 @@ function renderLegend() {
       <span><span class="swatch" style="background:#ffc266"></span>ヘ (他店ヘルプ・−1)</span>
       <span><span class="swatch" style="background:linear-gradient(135deg,#ffc266 50%,#fff 50%)"></span>半ヘ (半日他店ヘルプ・−0.5)</span>
       <span><span class="swatch" style="background:#d2a8f0"></span>有 (有給・労働時間あり)</span>
-      <span>クリック: 空 → 休 → 半 → 出 → ヘ → 半ヘ → 有 → 空</span>`;
+      <span><span class="swatch" style="background:#a3d3ec"></span>ヘ+ (来店ヘルプ・店舗+1)</span>
+      <span>クリック: 空 → 休 → 半 → 出 → ヘ → 半ヘ → 有 → 空</span>
+      <span style="color:#0e4a72;">ヘルプ要員の行: 空 → ヘ+(終日) → 半ヘ+(半日) → 空</span>`;
   } else if (state.uiMode === 'time') {
     let html = `
       <span><span class="swatch" style="background:#ffd5d5"></span>休</span>
@@ -1185,6 +1195,21 @@ function fmtNum(n) {
   return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
 }
 function isHelperPerson(p) { return p && p.type === 'ヘルプ'; }
+// 来店ヘルプ(ヘ+)に割り当てる基本シフトのパターンID
+function helperInPatternId() {
+  const id = ss().settings.helperInPatternId;
+  if (id && patternById(id)) return id;
+  if (patternById('help_default')) return 'help_default';
+  const noEL = ss().settings.shiftPatterns.find(p => !/[早遅]/.test(p.name));
+  return (noEL || ss().settings.shiftPatterns[0] || {}).id || null;
+}
+// ヘルプ要員セルを「時間付き」表現に正規化 (素の'work' → 'work:基本ヘルプ')
+function helperWorkValue(v) {
+  if (!isWork(v)) return v;
+  if (patternIdOf(v)) return v;
+  const hid = helperInPatternId();
+  return hid ? ('work:' + hid) : v;
+}
 
 // === ロック関連 (2種類: 'full' = 完全, 'work' = 出勤のみ) ===
 function getCellLock(dk, pid) {
@@ -1311,8 +1336,13 @@ function renderGrid() {
       } else if (isTime) {
         let cls = 'cell', txt = '', style = '';
         if (isHelperRow) {
-          // ヘルプ要員(来てくれる+): 青系
-          if (isWork(val)) { cls = 'cell helpin'; txt = 'ヘ+'; }
+          // ヘルプ要員(来てくれる+): 青系。終日は基本シフトの時間を表示
+          if (isWork(val)) {
+            const hp = patternById(patternIdOf(val) || helperInPatternId());
+            cls = 'cell helpin';
+            if (hp) { const r = effectiveTimeRange(dk, p.id, hp); txt = `ヘ+ ${shortTime(r.start)}-${shortTime(r.end)}`; }
+            else txt = 'ヘ+';
+          }
           else if (isHalfHelp(val)) { cls = 'cell halfhelpin'; txt = '半ヘ+'; }
           html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
           continue;
@@ -1352,7 +1382,12 @@ function renderGrid() {
       } else { // adjust
         let cls = 'cell', txt = '', style = '';
         if (isHelperRow) {
-          if (isWork(val)) { cls = 'cell helpin'; txt = 'ヘ+'; }
+          if (isWork(val)) {
+            const hp = patternById(patternIdOf(val) || helperInPatternId());
+            cls = 'cell helpin';
+            if (hp) { const r = effectiveTimeRange(dk, p.id, hp); const ovrCls = r.override ? 'ovr' : ''; txt = `<span class="t ${ovrCls}">ヘ+ ${shortTime(r.start)}</span><span class="t ${ovrCls}">${shortTime(r.end)}</span>`; cls = 'cell adjust-cell helpin'; }
+            else txt = 'ヘ+';
+          }
           else if (isHalfHelp(val)) { cls = 'cell halfhelpin'; txt = '半ヘ+'; }
           html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
           continue;
@@ -1424,8 +1459,14 @@ function renderGrid() {
       const dk2 = dateKey(d);
       if (isClosed(d, dk2)) continue;
       const v = getCell(state.currentCycle, dk2, p.id);
-      if (!isHelperRow) restTotal += cellRestValue(v, d, dk2);
-      hoursTotal += cellHours(v, dk2, p.id);
+      if (isHelperRow) {
+        // 来店ヘルプの時間も集計 (終日=基本シフト, 半日=その半分)
+        if (isWork(v)) hoursTotal += cellHours(helperWorkValue(v), dk2, p.id);
+        else if (isHalfHelp(v)) { const hp = patternById(helperInPatternId()); if (hp) hoursTotal += calcHours(hp.start, hp.end, hp.breakMin) / 2; }
+      } else {
+        restTotal += cellRestValue(v, d, dk2);
+        hoursTotal += cellHours(v, dk2, p.id);
+      }
     }
 
     // 休計セル
@@ -1565,8 +1606,9 @@ function renderGrid() {
       if (state.uiMode === 'rest') {
         let next;
         if (isHelperRow) {
-          // ヘルプ要員: 3状態循環 null → work(終日+1) → halfhelp(半日+0.5) → null
-          if (!cur) next = 'work';
+          // ヘルプ要員: 3状態循環 null → 終日ヘルプ(+1) → 半日ヘルプ(+0.5) → null
+          // 終日ヘルプは基本シフト(時間付き)で入れる
+          if (!cur) next = helperWorkValue('work');
           else if (isWork(cur)) next = 'halfhelp';
           else next = null;
         } else {
@@ -1587,6 +1629,11 @@ function renderGrid() {
         showPatternPopover(td, dk, pid);
       } else { // adjust
         if (isOff(cur) || isHalfHelp(cur)) return;
+        // 来店ヘルプの素の'work'は基本シフトに正規化してから時間調整
+        if (isHelperRow && isWork(cur) && !patternIdOf(cur)) {
+          const nv = helperWorkValue(cur);
+          if (nv !== cur) { setCell(state.currentCycle, dk, pid, nv); cur = nv; }
+        }
         const id = patternIdOf(cur);
         if (!id) return; // パターン未割当は調整不可
         showTimeAdjustPopover(td, dk, pid);
@@ -1816,14 +1863,19 @@ function showPatternPopover(targetTd, dk, pid) {
   let html = `<button class="pop-clear" data-val="">— なし（未設定に戻す）—</button>`;
   html += `<button class="pop-unspec" data-val="${prefix}">${labelType} (時間未定)</button>`;
   if (isHelperRow) {
-    html += `<div style="font-size:11px;color:#c47b00;padding:2px 4px;background:#ffe5b3;border-radius:3px;margin:2px 0;">＋ ヘルプ要員 (店舗にプラス1)</div>`;
+    html += `<div style="font-size:11px;color:#c47b00;padding:2px 4px;background:#ffe5b3;border-radius:3px;margin:2px 0;">＋ ヘルプ要員 (店舗にプラス1)<br>早出・遅出は割り当てません</div>`;
   } else if (isHelpBase) {
     html += `<div style="font-size:11px;color:#c47b00;padding:2px 4px;background:#ffe5b3;border-radius:3px;margin:2px 0;">※ 他店ヘルプ状態 (店舗カウント外)</div>`;
   } else if (isPaidBase) {
     html += `<div style="font-size:11px;color:#8a3a6b;padding:2px 4px;background:#ffccdd;border-radius:3px;margin:2px 0;">※ 有給 (店舗カウント外、労働時間に算入)</div>`;
   }
+  const defHelpId = isHelperRow ? helperInPatternId() : null;
   for (const pat of ss().settings.shiftPatterns) {
-    const sel = cur === `${prefix}:${pat.id}` ? ' ★' : '';
+    // ヘルプ要員には早出・遅出パターンは出さない
+    if (isHelperRow && /[早遅]/.test(pat.name)) continue;
+    const isSel = cur === `${prefix}:${pat.id}`;
+    const isDef = isHelperRow && !patternIdOf(cur) && pat.id === defHelpId;
+    const sel = isSel ? ' ★' : (isDef ? ' (既定)' : '');
     html += `<button data-val="${prefix}:${pat.id}" style="background:${pat.color}"><b>${escapeHtml(pat.name)}${sel}</b><small>${pat.start}-${pat.end}${pat.breakMin?` 休${pat.breakMin}分`:''} = ${patternHours(pat).toFixed(1)}h</small></button>`;
   }
   // 時間直接編集ボタン: パターン割当済 or help/paid セルなら表示 (フラグを保ったまま時間だけ変更可能)
@@ -1971,10 +2023,27 @@ function openSettings() {
   renderSlotsTable();
   renderWeekdayTable();
   renderHolidaysList();
+  renderHelperInSelect();
   document.getElementById('min-weekly-rest').value = ss().settings.minWeeklyRest;
   document.getElementById('part-weekly-limit').value = partWeeklyLimit();
   document.getElementById('fetch-status').textContent = '';
   document.getElementById('settings-dialog').showModal();
+}
+function renderHelperInSelect() {
+  const sel = document.getElementById('helper-in-pattern');
+  if (!sel) return;
+  const curId = helperInPatternId();
+  let html = '';
+  for (const pat of ss().settings.shiftPatterns) {
+    if (/[早遅]/.test(pat.name)) continue; // 早出・遅出は対象外
+    html += `<option value="${pat.id}" ${pat.id === curId ? 'selected' : ''}>${escapeHtml(pat.name)} (${pat.start}-${pat.end})</option>`;
+  }
+  sel.innerHTML = html;
+  sel.onchange = () => {
+    ss().settings.helperInPatternId = sel.value || 'help_default';
+    saveState();
+    render();
+  };
 }
 
 function fillCountInfo(i) {
@@ -2901,6 +2970,22 @@ function autoAssign() {
     for (const p of avail) {
       if (!assignedIds.has(p.id) && !isCellLocked(dk, p.id)) {
         setCell(state.currentCycle, dk, p.id, 'work');
+      }
+    }
+  }
+
+  // === 来店ヘルプ(ヘ+)の時間正規化 ===
+  // ヘルプ要員は早出/遅出の対象外。終日ヘルプ(素の'work')に基本シフトの時間を付与。
+  for (const d of dates) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) continue;
+    for (const p of ss().people) {
+      if (!isHelperPerson(p)) continue;
+      if (isCellFullLocked(dk, p.id)) continue;
+      const v = getCell(state.currentCycle, dk, p.id);
+      if (isWork(v) && !patternIdOf(v)) {
+        const nv = helperWorkValue(v);
+        if (nv !== v) setCell(state.currentCycle, dk, p.id, nv);
       }
     }
   }
