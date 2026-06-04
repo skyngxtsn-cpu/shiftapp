@@ -77,6 +77,9 @@
   td.ok { background: #d4f4d4; color: #060; }
   td.zero-need { background: #f0f0f0; color: #999; }
   td.total { background: #f8f8f8; font-weight: bold; }
+  td.total.hrs-over { background: #ffe0e0; color: #c0392b; }
+  td.total.hrs-under { background: #fff3e0; color: #c47b00; }
+  td.total.hrs-ok { background: #e0f5e0; color: #1a7a1a; }
   tr.day-notes td { font-size: 9px; vertical-align: top; background: #fffdf5; padding: 2px 3px; line-height: 1.15; word-break: break-all; white-space: pre-wrap; max-width: 60px; }
   tr.day-notes td.day-note-cell { cursor: pointer; color: #555; }
   tr.day-notes td.day-note-cell:hover { outline: 2px solid #4a90e2; outline-offset: -2px; background: #eef5ff; }
@@ -1244,6 +1247,7 @@ function totalAvailableOnDay(dk) {
 function renderGrid() {
   const { start, end } = cycleRange(state.currentCycle);
   const dates = listDates(start, end);
+  const weeksForGrid = groupByWeek(dates); // パート週上限チェック用
   const mode = state.uiMode;
   const isTime = mode === 'time';
   const isAdjust = mode === 'adjust';
@@ -1258,7 +1262,7 @@ function renderGrid() {
     const mark = isHoliday(dk) ? '祝' : WD[wd];
     html += `<th class="${cls}">${d.getDate()}<br><small>${mark}</small></th>`;
   }
-  html += `<th>${isRest ? '休計' : '時間計'}</th><th>早/遅</th></tr></thead><tbody>`;
+  html += `<th>${isRest ? '休計' : '時間計<br><small>/所定<br>過不足</small>'}</th><th>早/遅</th></tr></thead><tbody>`;
 
   const renderLockIcon = (locked) => locked ? '<span class="lock-icon">🔒</span>' : '';
   for (const p of ss().people) {
@@ -1396,8 +1400,35 @@ function renderGrid() {
       if (pat.name.includes('遅')) lateCount++;
     }
     const earlyLateCell = `<td class="total" style="font-size:10px;line-height:1.15;">早${earlyCount}<br>遅${lateCount}</td>`;
-    if (isRest) html += `<td class="total">${restSum}</td>${earlyLateCell}</tr>`;
-    else html += `<td class="total">${hourSum.toFixed(1)}h</td>${earlyLateCell}</tr>`;
+    if (isRest) {
+      html += `<td class="total">${restSum}</td>${earlyLateCell}</tr>`;
+    } else {
+      // 時間モード/最終調整: 時間計セルに過不足をインライン表示 (スクロール不要)
+      let totalCell;
+      if (isHelperRow) {
+        totalCell = `<td class="total" style="font-size:11px;">${hourSum.toFixed(1)}h</td>`;
+      } else if (p.type === 'パート') {
+        // パート: 週上限に対し、どこか超過してる週があれば赤
+        const limit = partWeeklyLimit();
+        let anyOver = false;
+        for (let wi = 0; wi < weeksForGrid.length; wi++) {
+          const w = weeksForGrid[wi];
+          const wh = personWeeklyHours(p.id, w);
+          const carry = (wi === 0 && isFirstWeekPartial()) ? getPartCarryover(p.id) : 0;
+          if (wh + carry > limit + 0.001) { anyOver = true; break; }
+        }
+        const cls = anyOver ? 'hrs-over' : 'hrs-ok';
+        totalCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hourSum.toFixed(1)}h<br><small>週${limit}h${anyOver ? ' ⚠' : ''}</small></td>`;
+      } else {
+        // 正社員: 月所定との過不足
+        const target = monthlyTarget(state.currentCycle);
+        const diff = hourSum - target;
+        const cls = Math.abs(diff) <= 0.5 ? 'hrs-ok' : (diff > 0 ? 'hrs-over' : 'hrs-under');
+        const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+        totalCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hourSum.toFixed(1)}<br><small style="color:#888;">/${target}</small><br><b>${diffStr}</b></td>`;
+      }
+      html += `${totalCell}${earlyLateCell}</tr>`;
+    }
   }
 
   if (isRest) {
