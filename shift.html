@@ -2807,10 +2807,26 @@ function autoAssign() {
       });
     }
 
+    // 半日フィル枠の確保: 人員が少ない日でも half-day を必ず置けるよう、
+    // 遅出(終日)が半日枠を食い潰さないよう予約しておく。
+    // (早出=開店枠は最優先のまま。木曜「2人+半日1人」のような構成で、
+    //  当日3人揃わない場合でも 1人早出+1人半日 を成立させるため)
+    let halfFillReserve = 0;
+    for (const f of (sl.fills || [])) {
+      let fpid = f.patternId;
+      if (f.alt && patById[f.alt] && d.getDate() % 2 === 0) fpid = f.alt;
+      const fp = fpid && patById[fpid];
+      if (fp && fp.halfDay) {
+        halfFillReserve += Math.max(0, (f.count || 0) - (lockedPatternCount[fpid] || 0));
+      }
+    }
+
     // 2. 遅出 (ロック済みの遅出分を引く)
     const lateId = sl.latePatternId;
     const lateLockedCount = lateId ? (lockedPatternCount[lateId] || 0) : 0;
-    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, avail.length)) : 0;
+    const remainingAvailForLate = avail.filter(p => !assignedIds.has(p.id)).length;
+    const lateRoom = Math.max(0, remainingAvailForLate - halfFillReserve);
+    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, avail.length, lateRoom)) : 0;
     if (lateNeed > 0 && patById[lateId]) {
       const lateAvail = avail.filter(p => !assignedIds.has(p.id));
       if (lateNeed === 1) {
