@@ -77,6 +77,11 @@
   td.ok { background: #d4f4d4; color: #060; }
   td.zero-need { background: #f0f0f0; color: #999; }
   td.total { background: #f8f8f8; font-weight: bold; }
+  tr.day-notes td { font-size: 9px; vertical-align: top; background: #fffdf5; padding: 2px 3px; line-height: 1.15; word-break: break-all; white-space: pre-wrap; max-width: 60px; }
+  tr.day-notes td.day-note-cell { cursor: pointer; color: #555; }
+  tr.day-notes td.day-note-cell:hover { outline: 2px solid #4a90e2; outline-offset: -2px; background: #eef5ff; }
+  tr.day-notes td.day-note-cell.has-note { background: #fff3cd; color: #6a5400; }
+  tr.day-notes td.name { background: #f0f0f0; cursor: default; font-size: 11px; }
 
   #rest-summary, #time-summary { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .panel { background: #fff; border: 1px solid #ddd; padding: 10px 12px; border-radius: 4px; }
@@ -727,6 +732,8 @@ function migrate(d) {
     if (!sheet.partCarryover) sheet.partCarryover = {};
     // 日付ごとの必要人数オーバーライド
     if (!sheet.dailyRequiredOverride) sheet.dailyRequiredOverride = {};
+    // 日付ごとのメモ・備考
+    if (!sheet.dayNotes) sheet.dayNotes = {};
     if (!sheet.settings.personTypes) sheet.settings.personTypes = defaultPersonTypes();
     if (!sheet.settings.personTypes['ヘルプ']) sheet.settings.personTypes['ヘルプ'] = { kind: 'helper' };
     if (!Array.isArray(sheet.people)) sheet.people = [];
@@ -816,6 +823,30 @@ function clearDailyRequiredOverride(dk) {
   delete co[state.currentCycle][dk];
   if (Object.keys(co[state.currentCycle]).length === 0) delete co[state.currentCycle];
   saveState();
+}
+// 日付ごとのメモ・備考
+function getDayNote(dk) {
+  return ss().dayNotes?.[state.currentCycle]?.[dk] || '';
+}
+function setDayNote(dk, text) {
+  if (!ss().dayNotes) ss().dayNotes = {};
+  if (!ss().dayNotes[state.currentCycle]) ss().dayNotes[state.currentCycle] = {};
+  if (text) {
+    ss().dayNotes[state.currentCycle][dk] = text;
+  } else {
+    delete ss().dayNotes[state.currentCycle][dk];
+    if (Object.keys(ss().dayNotes[state.currentCycle]).length === 0) delete ss().dayNotes[state.currentCycle];
+  }
+  saveState();
+}
+function editDayNote(dk) {
+  const [y, m, d] = dk.split('-').map(Number);
+  const date = new Date(y, m-1, d);
+  const cur = getDayNote(dk);
+  const input = prompt(`${m}/${d}(${WD[date.getDay()]}) のメモ・備考\n(改行可、空欄で削除)`, cur || '');
+  if (input === null) return;
+  setDayNote(dk, input.trim());
+  render();
 }
 function effectiveOffValue(d, dk) {
   if (isClosed(d, dk)) return 0;
@@ -1348,9 +1379,27 @@ function renderGrid() {
     html += '<td></td><td></td></tr>';
   }
 
+  // メモ・備考行 (全モード共通、最下部)
+  html += '<tr class="day-notes divider"><td class="name">メモ</td>';
+  for (const d of dates) {
+    const dk = dateKey(d);
+    const note = getDayNote(dk);
+    const hasNote = !!(note && note.trim());
+    html += `<td class="day-note-cell${hasNote ? ' has-note' : ''}" data-note-date="${dk}" title="${hasNote ? escapeHtml(note) : 'クリックでメモ入力'}">${hasNote ? escapeHtml(note) : ''}</td>`;
+  }
+  html += '<td></td><td></td></tr>';
+
   html += '</tbody>';
   const tbl = document.getElementById('shift-grid');
   tbl.innerHTML = html;
+
+  // メモ行のクリックで備考を編集
+  tbl.querySelectorAll('td.day-note-cell').forEach(td => {
+    td.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      editDayNote(td.dataset.noteDate);
+    });
+  });
 
   // 「必要」行のクリックで個別必要人数を変更
   tbl.querySelectorAll('td.req-editable').forEach(td => {
@@ -3150,9 +3199,13 @@ function exportCSV() {
   for (let i = 0; i < dates.length; i++) r5[2 + i] = WD[dates[i].getDay()];
   rows.push(r5);
 
-  // Row 6: 業務予定・行事等 (空欄 - 後で手入力)
+  // Row 6: 業務予定・行事等 (アプリのメモ行から自動反映)
   const r6 = empty();
   r6[0] = '業務予定・行事等';
+  for (let i = 0; i < dates.length; i++) {
+    const note = getDayNote(dateKey(dates[i]));
+    if (note) r6[2 + i] = note;
+  }
   rows.push(r6);
 
   // 従業員ごとの 5行ブロック
