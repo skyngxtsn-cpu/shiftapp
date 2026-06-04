@@ -45,16 +45,17 @@
   td.name .type-badge.part { background: #ffe0b3; color: #aa5500; }
   td.cell { cursor: pointer; user-select: none; font-weight: bold; }
   td.cell:hover { outline: 2px solid #4a90e2; outline-offset: -2px; }
-  td.cell.off { background: #ffd5d5; color: #c0392b; }
-  td.cell.halfoff { background: #ffe0e8; color: #c0476a; font-weight: bold; }
-  td.cell.work { background: #d5e5ff; color: #2c5aa0; }
+  /* 休=赤(ベタ) / 半=赤の斜め半分塗り / 出=青 / ヘ=橙 / 半ヘ=橙の斜め半分塗り / 有=紫 */
+  td.cell.off { background: #ff9b9b; color: #7a1010; font-weight: bold; }
+  td.cell.halfoff { background: linear-gradient(135deg, #ff9b9b 50%, #ffffff 50%); color: #7a1010; font-weight: bold; }
+  td.cell.work { background: #aaccff; color: #163a6b; }
   td.cell.work-unspec { background: #fff3a8; color: #8a6500; }
   td.cell.work-pat { font-size: 10px; padding: 1px 2px; }
-  td.cell.help { background: #ffe5b3; color: #c47b00; }
-  td.cell.halfhelp { background: #ffeccc; color: #c47b00; font-weight: bold; font-size: 9px; }
-  td.cell.help-pat { background: #ffe5b3; color: #c47b00; font-size: 10px; padding: 1px 2px; border: 2px dashed #d4a050; }
-  td.cell.paid { background: #ffccdd; color: #8a3a6b; font-weight: bold; }
-  td.cell.paid-pat { background: #ffccdd; color: #8a3a6b; font-size: 10px; padding: 1px 2px; border: 2px solid #c070a0; }
+  td.cell.help { background: #ffc266; color: #7a4a00; font-weight: bold; }
+  td.cell.halfhelp { background: linear-gradient(135deg, #ffc266 50%, #ffffff 50%); color: #7a4a00; font-weight: bold; font-size: 9px; }
+  td.cell.help-pat { background: #ffc266; color: #7a4a00; font-size: 10px; padding: 1px 2px; border: 2px dashed #cc8800; }
+  td.cell.paid { background: #d2a8f0; color: #4a1a70; font-weight: bold; }
+  td.cell.paid-pat { background: #d2a8f0; color: #4a1a70; font-size: 10px; padding: 1px 2px; border: 2px solid #9b4fc0; }
   td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
   td.cell.locked-work { box-shadow: inset 0 0 0 3px #4a90e2; position: relative; }
   td.cell .lock-icon { position: absolute; top: 0; right: 1px; font-size: 9px; line-height: 1; pointer-events: none; }
@@ -1135,12 +1136,12 @@ function renderLegend() {
   if (state.uiMode === 'rest') {
     el.innerHTML = `
       <span><span class="swatch" style="background:#fff"></span>未設定</span>
-      <span><span class="swatch" style="background:#ffd5d5"></span>休 (絶対休み・1日)</span>
-      <span><span class="swatch" style="background:#ffe0e8"></span>半 (半休・0.5日)</span>
-      <span><span class="swatch" style="background:#d5e5ff"></span>出 (絶対出勤)</span>
-      <span><span class="swatch" style="background:#ffe5b3"></span>ヘ (他店ヘルプ・−1)</span>
-      <span><span class="swatch" style="background:#ffeccc"></span>半ヘ (半日他店ヘルプ・−0.5)</span>
-      <span><span class="swatch" style="background:#ffccdd"></span>有 (有給・労働時間あり)</span>
+      <span><span class="swatch" style="background:#ff9b9b"></span>休 (絶対休み・1日)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,#ff9b9b 50%,#fff 50%)"></span>半 (半休・0.5日)</span>
+      <span><span class="swatch" style="background:#aaccff"></span>出 (絶対出勤)</span>
+      <span><span class="swatch" style="background:#ffc266"></span>ヘ (他店ヘルプ・−1)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,#ffc266 50%,#fff 50%)"></span>半ヘ (半日他店ヘルプ・−0.5)</span>
+      <span><span class="swatch" style="background:#d2a8f0"></span>有 (有給・労働時間あり)</span>
       <span>クリック: 空 → 休 → 半 → 出 → ヘ → 半ヘ → 有 → 空</span>`;
   } else if (state.uiMode === 'time') {
     let html = `
@@ -1262,7 +1263,7 @@ function renderGrid() {
     const mark = isHoliday(dk) ? '祝' : WD[wd];
     html += `<th class="${cls}">${d.getDate()}<br><small>${mark}</small></th>`;
   }
-  html += `<th>${isRest ? '休計' : '時間計<br><small>/所定<br>過不足</small>'}</th><th>早/遅</th></tr></thead><tbody>`;
+  html += `<th>休計</th><th>時間計<br><small>/所定<br>過不足</small></th><th>早/遅</th></tr></thead><tbody>`;
 
   const renderLockIcon = (locked) => locked ? '<span class="lock-icon">🔒</span>' : '';
   for (const p of ss().people) {
@@ -1400,35 +1401,44 @@ function renderGrid() {
       if (pat.name.includes('遅')) lateCount++;
     }
     const earlyLateCell = `<td class="total" style="font-size:10px;line-height:1.15;">早${earlyCount}<br>遅${lateCount}</td>`;
-    if (isRest) {
-      html += `<td class="total">${restSum}</td>${earlyLateCell}</tr>`;
-    } else {
-      // 時間モード/最終調整: 時間計セルに過不足をインライン表示 (スクロール不要)
-      let totalCell;
-      if (isHelperRow) {
-        totalCell = `<td class="total" style="font-size:11px;">${hourSum.toFixed(1)}h</td>`;
-      } else if (p.type === 'パート') {
-        // パート: 週上限に対し、どこか超過してる週があれば赤
-        const limit = partWeeklyLimit();
-        let anyOver = false;
-        for (let wi = 0; wi < weeksForGrid.length; wi++) {
-          const w = weeksForGrid[wi];
-          const wh = personWeeklyHours(p.id, w);
-          const carry = (wi === 0 && isFirstWeekPartial()) ? getPartCarryover(p.id) : 0;
-          if (wh + carry > limit + 0.001) { anyOver = true; break; }
-        }
-        const cls = anyOver ? 'hrs-over' : 'hrs-ok';
-        totalCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hourSum.toFixed(1)}h<br><small>週${limit}h${anyOver ? ' ⚠' : ''}</small></td>`;
-      } else {
-        // 正社員: 月所定との過不足
-        const target = monthlyTarget(state.currentCycle);
-        const diff = hourSum - target;
-        const cls = Math.abs(diff) <= 0.5 ? 'hrs-ok' : (diff > 0 ? 'hrs-over' : 'hrs-under');
-        const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
-        totalCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hourSum.toFixed(1)}<br><small style="color:#888;">/${target}</small><br><b>${diffStr}</b></td>`;
-      }
-      html += `${totalCell}${earlyLateCell}</tr>`;
+
+    // 全モード共通の集計 (休計・労働時間)
+    let restTotal = 0, hoursTotal = 0;
+    for (const d of dates) {
+      const dk2 = dateKey(d);
+      if (isClosed(d, dk2)) continue;
+      const v = getCell(state.currentCycle, dk2, p.id);
+      if (!isHelperRow) restTotal += cellRestValue(v, d, dk2);
+      hoursTotal += cellHours(v, dk2, p.id);
     }
+
+    // 休計セル
+    const restCell = `<td class="total">${isHelperRow ? '' : fmtNum(restTotal)}</td>`;
+
+    // 時間計/過不足セル (全モードで表示)
+    let hoursCell;
+    if (isHelperRow) {
+      hoursCell = `<td class="total" style="font-size:11px;">${hoursTotal.toFixed(1)}h</td>`;
+    } else if (p.type === 'パート') {
+      const limit = partWeeklyLimit();
+      let anyOver = false;
+      for (let wi = 0; wi < weeksForGrid.length; wi++) {
+        const w = weeksForGrid[wi];
+        const wh = personWeeklyHours(p.id, w);
+        const carry = (wi === 0 && isFirstWeekPartial()) ? getPartCarryover(p.id) : 0;
+        if (wh + carry > limit + 0.001) { anyOver = true; break; }
+      }
+      const cls = anyOver ? 'hrs-over' : 'hrs-ok';
+      hoursCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hoursTotal.toFixed(1)}h<br><small>週${limit}h${anyOver ? ' ⚠' : ''}</small></td>`;
+    } else {
+      const target = monthlyTarget(state.currentCycle);
+      const diff = hoursTotal - target;
+      const cls = Math.abs(diff) <= 0.5 ? 'hrs-ok' : (diff > 0 ? 'hrs-over' : 'hrs-under');
+      const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+      hoursCell = `<td class="total ${cls}" style="font-size:10px;line-height:1.2;">${hoursTotal.toFixed(1)}<br><small style="color:#888;">/${target}</small><br><b>${diffStr}</b></td>`;
+    }
+
+    html += `${restCell}${hoursCell}${earlyLateCell}</tr>`;
   }
 
   if (isRest) {
@@ -1445,7 +1455,7 @@ function renderGrid() {
       const dataAttr = !closed ? ` data-req-date="${dk}"` : '';
       html += `<td class="${classes.join(' ')}"${dataAttr}>${req || '-'}</td>`;
     }
-    html += '<td></td><td></td></tr>';
+    html += '<td></td><td></td><td></td></tr>';
     html += '<tr class="available"><td class="name">出勤可</td>';
     for (const d of dates) {
       const dk = dateKey(d);
@@ -1457,7 +1467,7 @@ function renderGrid() {
       const txt = helpersIn > 0 ? `${fmtNum(avail)}/${req}<br><small style="color:#c47b00;">+ヘ${fmtNum(helpersIn)}</small>` : `${fmtNum(avail)}/${req}`;
       html += `<td class="${cls}">${txt}</td>`;
     }
-    html += '<td></td><td></td></tr>';
+    html += '<td></td><td></td><td></td></tr>';
   }
 
   // メモ・備考行 (全モード共通、最下部)
@@ -1468,7 +1478,7 @@ function renderGrid() {
     const hasNote = !!(note && note.trim());
     html += `<td class="day-note-cell${hasNote ? ' has-note' : ''}" data-note-date="${dk}" title="${hasNote ? escapeHtml(note) : 'クリックでメモ入力'}">${hasNote ? escapeHtml(note) : ''}</td>`;
   }
-  html += '<td></td><td></td></tr>';
+  html += '<td></td><td></td><td></td></tr>';
 
   html += '</tbody>';
   const tbl = document.getElementById('shift-grid');
