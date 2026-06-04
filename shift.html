@@ -51,6 +51,7 @@
   td.cell.work-unspec { background: #fff3a8; color: #8a6500; }
   td.cell.work-pat { font-size: 10px; padding: 1px 2px; }
   td.cell.help { background: #ffe5b3; color: #c47b00; }
+  td.cell.halfhelp { background: #ffeccc; color: #c47b00; font-weight: bold; font-size: 9px; }
   td.cell.help-pat { background: #ffe5b3; color: #c47b00; font-size: 10px; padding: 1px 2px; border: 2px dashed #d4a050; }
   td.cell.paid { background: #ffccdd; color: #8a3a6b; font-weight: bold; }
   td.cell.paid-pat { background: #ffccdd; color: #8a3a6b; font-size: 10px; padding: 1px 2px; border: 2px solid #c070a0; }
@@ -843,6 +844,7 @@ function isOff(v) { return v === 'off'; }
 function isWork(v) { return typeof v === 'string' && v.startsWith('work'); }
 function isHelp(v) { return typeof v === 'string' && v.startsWith('help'); }
 function isHalfOff(v) { return v === 'halfoff'; }
+function isHalfHelp(v) { return v === 'halfhelp'; }
 function isPaid(v) { return typeof v === 'string' && v.startsWith('paid'); }
 function isUnavailable(v) { return isOff(v) || isHelp(v) || isPaid(v); }
 function patternIdOf(v) {
@@ -1065,8 +1067,9 @@ function renderLegend() {
       <span><span class="swatch" style="background:#ffe0e8"></span>半 (半休・0.5日)</span>
       <span><span class="swatch" style="background:#d5e5ff"></span>出 (絶対出勤)</span>
       <span><span class="swatch" style="background:#ffe5b3"></span>ヘ (他店ヘルプ・−1)</span>
+      <span><span class="swatch" style="background:#ffeccc"></span>半ヘ (半日他店ヘルプ・−0.5)</span>
       <span><span class="swatch" style="background:#ffccdd"></span>有 (有給・労働時間あり)</span>
-      <span>クリック: 空 → 休 → 半 → 出 → ヘ → 有 → 空</span>`;
+      <span>クリック: 空 → 休 → 半 → 出 → ヘ → 半ヘ → 有 → 空</span>`;
   } else if (state.uiMode === 'time') {
     let html = `
       <span><span class="swatch" style="background:#ffd5d5"></span>休</span>
@@ -1091,13 +1094,19 @@ function countOffOnDay(dk) {
   return c;
 }
 function countUnavailableOnDay(dk) {
-  // 休 + ヘルプ (両方とも自店舗のカウントから外す) - 正社員/パートのみ対象
+  // 休 / 他店ヘルプ / 有給 = 1人分不在、半ヘ (半日他店ヘルプ) = 0.5人分不在
   let c = 0;
   for (const p of ss().people) {
     if (isHelperPerson(p)) continue;
-    if (isUnavailable(getCell(state.currentCycle, dk, p.id))) c++;
+    const v = getCell(state.currentCycle, dk, p.id);
+    if (isUnavailable(v)) c += 1;
+    else if (isHalfHelp(v)) c += 0.5;
   }
   return c;
+}
+// 小数を見やすく整形 (整数はそのまま、小数は1桁)
+function fmtNum(n) {
+  return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
 }
 function isHelperPerson(p) { return p && p.type === 'ヘルプ'; }
 
@@ -1195,6 +1204,7 @@ function renderGrid() {
         } else {
           if (isOff(val)) { cls = 'cell off'; txt = '休'; }
           else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
+          else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
           else if (isHelp(val)) { cls = 'cell help'; txt = 'ヘ'; }
           else if (isPaid(val)) { cls = 'cell paid'; txt = '有'; }
           else if (isWork(val)) {
@@ -1211,6 +1221,7 @@ function renderGrid() {
         let cls = 'cell', txt = '', style = '';
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
+        else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
           const pat = pid ? patternById(pid) : patternById('paid');
@@ -1244,6 +1255,7 @@ function renderGrid() {
         let cls = 'cell', txt = '', style = '';
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
+        else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
           const pat = pid ? patternById(pid) : patternById('paid');
@@ -1328,7 +1340,7 @@ function renderGrid() {
       const helpersIn = helpersInOnDay(dk);
       const req = effectiveRequired(d, dk);
       const cls = avail < req ? 'short' : 'ok';
-      const txt = helpersIn > 0 ? `${avail}/${req}<br><small style="color:#c47b00;">+ヘ${helpersIn}</small>` : `${avail}/${req}`;
+      const txt = helpersIn > 0 ? `${fmtNum(avail)}/${req}<br><small style="color:#c47b00;">+ヘ${helpersIn}</small>` : `${fmtNum(avail)}/${req}`;
       html += `<td class="${cls}">${txt}</td>`;
     }
     html += '<td></td><td></td></tr>';
@@ -1397,21 +1409,22 @@ function renderGrid() {
           // ヘルプ要員: 2状態循環 null → work → null
           next = !cur ? 'work' : null;
         } else {
-          // 通常: 6状態循環 null → off → halfoff → work → help → paid → null
+          // 通常: 7状態循環 null → off → halfoff → work → help → halfhelp → paid → null
           if (!cur) next = 'off';
           else if (isOff(cur)) next = 'halfoff';
           else if (isHalfOff(cur)) next = 'work';
           else if (isWork(cur)) next = 'help';
-          else if (isHelp(cur)) next = 'paid';
+          else if (isHelp(cur)) next = 'halfhelp';
+          else if (isHalfHelp(cur)) next = 'paid';
           else next = null;
         }
         setCell(state.currentCycle, dk, pid, next);
         render();
       } else if (state.uiMode === 'time') {
-        if (isOff(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur)) return;
         showPatternPopover(td, dk, pid);
       } else { // adjust
-        if (isOff(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur)) return;
         const id = patternIdOf(cur);
         if (!id) return; // パターン未割当は調整不可
         showTimeAdjustPopover(td, dk, pid);
@@ -1477,7 +1490,7 @@ function renderRestSummary() {
   if (shorts.length === 0) h1 += '<p class="ok-msg">不足日なし ✅</p>';
   else {
     h1 += '<ul>';
-    for (const s of shorts) h1 += `<li class="warn-msg">${s.d.getMonth()+1}/${s.d.getDate()}(${WD[s.d.getDay()]}) 出勤可${s.avail}/必要${s.req} → <b>${s.short}人不足</b></li>`;
+    for (const s of shorts) h1 += `<li class="warn-msg">${s.d.getMonth()+1}/${s.d.getDate()}(${WD[s.d.getDay()]}) 出勤可${fmtNum(s.avail)}/必要${s.req} → <b>${fmtNum(s.short)}人不足</b></li>`;
     h1 += '</ul>';
   }
   document.getElementById('shortage-panel').innerHTML = h1;
@@ -2587,7 +2600,7 @@ function autoAssign() {
       if (p.type === 'パート') return false; // パートは正社員ロジックの対象外
       if (isCellFullLocked(dk, p.id)) return false; // 完全ロックのみ除外 (出勤ロックは再割当対象)
       const v = getCell(state.currentCycle, dk, p.id);
-      return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v);
+      return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v) && !isHalfHelp(v);
     });
     if (avail.length === 0) continue;
 
