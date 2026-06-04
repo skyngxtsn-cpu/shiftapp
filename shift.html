@@ -54,6 +54,9 @@
   td.cell.help { background: #ffc266; color: #7a4a00; font-weight: bold; }
   td.cell.halfhelp { background: linear-gradient(135deg, #ffc266 50%, #ffffff 50%); color: #7a4a00; font-weight: bold; font-size: 9px; }
   td.cell.help-pat { background: #ffc266; color: #7a4a00; font-size: 10px; padding: 1px 2px; border: 2px dashed #cc8800; }
+  /* 来てくれるヘルプ(+) は青系 (他店へ行くヘルプのオレンジ・出勤の淡青と区別) */
+  td.cell.helpin { background: #5b9bd5; color: #fff; font-weight: bold; }
+  td.cell.halfhelpin { background: linear-gradient(135deg, #5b9bd5 50%, #ffffff 50%); color: #1a4a7a; font-weight: bold; font-size: 9px; }
   td.cell.paid { background: #d2a8f0; color: #4a1a70; font-weight: bold; }
   td.cell.paid-pat { background: #d2a8f0; color: #4a1a70; font-size: 10px; padding: 1px 2px; border: 2px solid #9b4fc0; }
   td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
@@ -1286,9 +1289,9 @@ function renderGrid() {
       if (isRest) {
         let cls = 'cell', txt = '';
         if (isHelperRow) {
-          // ヘルプ要員: null=空(来ない), work=ヘ+(終日+1), halfhelp=半ヘ+(半日+0.5)
-          if (isWork(val)) { cls = 'cell help'; txt = 'ヘ+'; }
-          else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ+'; }
+          // ヘルプ要員(来てくれる+): 青系。null=空(来ない), work=ヘ+(終日+1), halfhelp=半ヘ+(半日+0.5)
+          if (isWork(val)) { cls = 'cell helpin'; txt = 'ヘ+'; }
+          else if (isHalfHelp(val)) { cls = 'cell halfhelpin'; txt = '半ヘ+'; }
         } else {
           if (isOff(val)) { cls = 'cell off'; txt = '休'; }
           else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
@@ -1307,6 +1310,13 @@ function renderGrid() {
         if (!isHelperRow) restSum += cellRestValue(val, d, dk);
       } else if (isTime) {
         let cls = 'cell', txt = '', style = '';
+        if (isHelperRow) {
+          // ヘルプ要員(来てくれる+): 青系
+          if (isWork(val)) { cls = 'cell helpin'; txt = 'ヘ+'; }
+          else if (isHalfHelp(val)) { cls = 'cell halfhelpin'; txt = '半ヘ+'; }
+          html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
+          continue;
+        }
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
         else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
@@ -1341,6 +1351,12 @@ function renderGrid() {
         html += `<td class="${cls}" style="${style}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
       } else { // adjust
         let cls = 'cell', txt = '', style = '';
+        if (isHelperRow) {
+          if (isWork(val)) { cls = 'cell helpin'; txt = 'ヘ+'; }
+          else if (isHalfHelp(val)) { cls = 'cell halfhelpin'; txt = '半ヘ+'; }
+          html += `<td class="${cls}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
+          continue;
+        }
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
         else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
