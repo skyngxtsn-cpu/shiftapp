@@ -1291,7 +1291,7 @@ function renderGrid() {
     const mark = isHoliday(dk) ? '祝' : WD[wd];
     html += `<th class="${cls}">${d.getDate()}<br><small>${mark}</small></th>`;
   }
-  html += `<th>休計</th><th>時間計<br><small>/所定<br>過不足</small></th><th>早/遅</th></tr></thead><tbody>`;
+  html += `<th>休計</th><th>時間計<br><small>/所定<br>過不足</small></th><th>早/遅<br><small style="color:#7a3aa0;">土遅</small></th></tr></thead><tbody>`;
 
   const renderLockIcon = (locked) => locked ? '<span class="lock-icon">🔒</span>' : '';
   for (const p of ss().people) {
@@ -1438,8 +1438,8 @@ function renderGrid() {
         html += `<td class="${cls}" style="${style}" data-date="${dk}" data-person="${p.id}">${txt}</td>`;
       }
     }
-    // 早/遅 カウント (パターン名に「早」「遅」を含むセル数)
-    let earlyCount = 0, lateCount = 0;
+    // 早/遅 カウント (パターン名に「早」「遅」を含むセル数)。土曜の遅出は別途カウント
+    let earlyCount = 0, lateCount = 0, satLateCount = 0;
     for (const d of dates) {
       const dk2 = dateKey(d);
       if (isClosed(d, dk2)) continue;
@@ -1449,9 +1449,12 @@ function renderGrid() {
       const pat = patternById(pId);
       if (!pat) continue;
       if (pat.name.includes('早')) earlyCount++;
-      if (pat.name.includes('遅')) lateCount++;
+      if (pat.name.includes('遅')) {
+        lateCount++;
+        if (d.getDay() === 6) satLateCount++; // 土曜の遅出
+      }
     }
-    const earlyLateCell = `<td class="total" style="font-size:10px;line-height:1.15;">早${earlyCount}<br>遅${lateCount}</td>`;
+    const earlyLateCell = `<td class="total" style="font-size:10px;line-height:1.15;">早${earlyCount}<br>遅${lateCount}<br><span style="color:#7a3aa0;">土遅${satLateCount}</span></td>`;
 
     // 全モード共通の集計 (休計・労働時間)
     let restTotal = 0, hoursTotal = 0;
