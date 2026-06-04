@@ -262,6 +262,8 @@
 </div>
 <header>
   <h1>薬剤師シフト管理</h1>
+  <button id="undo-btn" title="元に戻す" disabled>↶ 戻る</button>
+  <button id="redo-btn" title="やり直す" disabled>↷ 進む</button>
   <button id="prev">◀</button>
   <span id="cycle-label"></span>
   <button id="next">▶</button>
@@ -785,6 +787,40 @@ function loadState() {
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 let state = loadState();
 
+// === Undo / Redo (セッション内のみ・最大50段) ===
+const UNDO_LIMIT = 50;
+let undoStack = [];
+let redoStack = [];
+// 変更を加える「直前」に呼ぶ: 現在のstateをスナップショットして履歴に積む
+function pushUndo() {
+  try { undoStack.push(JSON.stringify(state)); } catch (e) { return; }
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack = []; // 新しい操作をしたら redo はクリア
+  updateUndoButtons();
+}
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(JSON.stringify(state));
+  state = JSON.parse(undoStack.pop());
+  saveState();
+  render();
+  updateUndoButtons();
+}
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(JSON.stringify(state));
+  state = JSON.parse(redoStack.pop());
+  saveState();
+  render();
+  updateUndoButtons();
+}
+function updateUndoButtons() {
+  const ub = document.getElementById('undo-btn');
+  const rb = document.getElementById('redo-btn');
+  if (ub) { ub.disabled = undoStack.length === 0; ub.title = `元に戻す (${undoStack.length})`; }
+  if (rb) { rb.disabled = redoStack.length === 0; rb.title = `やり直す (${redoStack.length})`; }
+}
+
 function getCell(cycle, dk, pid) { return ss().cycles[cycle]?.[dk]?.[pid] ?? null; }
 function setCell(cycle, dk, pid, value) {
   if (!ss().cycles[cycle]) ss().cycles[cycle] = {};
@@ -845,6 +881,7 @@ function editDayNote(dk) {
   const cur = getDayNote(dk);
   const input = prompt(`${m}/${d}(${WD[date.getDay()]}) のメモ・備考\n(改行可、空欄で削除)`, cur || '');
   if (input === null) return;
+  pushUndo();
   setDayNote(dk, input.trim());
   render();
 }
@@ -1040,6 +1077,7 @@ function renderPartCarryoverBanner() {
     inp.addEventListener('change', () => {
       const pid = inp.dataset.pid;
       const h = parseHoursStr(inp.value);
+      pushUndo();
       setPartCarryover(pid, h);
       // 時間サマリも更新
       if (state.uiMode === 'time' || state.uiMode === 'adjust') renderSummary();
@@ -1080,7 +1118,7 @@ function renderModeToggle() {
   const lockBtn = document.getElementById('lock-edit-btn');
   if (state.lockEditMode) {
     lockBtn.classList.add('lock-edit-active');
-    lockBtn.textContent = '🔓 ロック編集を終了 (空→🔒完全→📌出勤→空)';
+    lockBtn.textContent = '🔓 ロック編集を終了 (休/空→🔒完全のみ・出勤→🔒完全/📌出勤)';
     document.body.classList.add('lock-edit-mode');
   } else {
     lockBtn.classList.remove('lock-edit-active');
@@ -1165,13 +1203,25 @@ function setCellLock(dk, pid, value) {
   }
   saveState();
 }
-// ロック編集モードのクリックで循環: null → full → work → null
+// ロック編集モードのクリックで循環。
+// 出勤系セル(自店舗で勤務する正社員/パート): null → full → work → null (完全/出勤を選べる)
+// 休み系・ヘルプ・空セル: null → full → null (完全ロックのみ)
 function cycleCellLock(dk, pid) {
   const cur = getCellLock(dk, pid);
+  const cellVal = getCell(state.currentCycle, dk, pid);
+  const person = ss().people.find(p => p.id === pid);
+  const isRegular = person && !isHelperPerson(person);
+  // 「出勤」= 自店舗で勤務する正社員/パートの work セルのみ (時間再割当の余地がある)
+  const canWorkLock = isRegular && isWork(cellVal);
   let next;
-  if (cur === null) next = 'full';
-  else if (cur === 'full') next = 'work';
-  else next = null;
+  if (canWorkLock) {
+    if (cur === null) next = 'full';
+    else if (cur === 'full') next = 'work';
+    else next = null;
+  } else {
+    // 休み(休/半/有/ヘ/半ヘ) / ヘルプ要員 / 空セル → 完全ロックのみ
+    next = (cur === null) ? 'full' : null;
+  }
   setCellLock(dk, pid, next);
 }
 function regularsCount() { return ss().people.filter(p => !isHelperPerson(p)).length; }
@@ -1427,8 +1477,9 @@ function renderGrid() {
       ev.stopPropagation();
       const dk = td.dataset.date;
       const pid = td.dataset.person;
-      // ロック編集モード: クリックで 空→🔒完全→📌出勤→空 と循環
+      // ロック編集モード: クリックで循環 (内容別)
       if (state.lockEditMode) {
+        pushUndo();
         cycleCellLock(dk, pid);
         render();
         return;
@@ -1471,6 +1522,7 @@ function renderGrid() {
           else if (isHalfHelp(cur)) next = 'paid';
           else next = null;
         }
+        pushUndo();
         setCell(state.currentCycle, dk, pid, next);
         render();
       } else if (state.uiMode === 'time') {
@@ -1502,12 +1554,15 @@ function editDailyRequired(dk, date) {
   const input = prompt(msg, String(cur));
   if (input === null) return; // キャンセル
   const trimmed = input.trim();
+  if (trimmed !== '' ) {
+    const numCheck = parseInt(trimmed, 10);
+    if (isNaN(numCheck) || numCheck < 0) { alert('0以上の数字を入れてください'); return; }
+  }
+  pushUndo();
   if (trimmed === '') {
     clearDailyRequiredOverride(dk);
   } else {
-    const num = parseInt(trimmed, 10);
-    if (isNaN(num) || num < 0) { alert('0以上の数字を入れてください'); return; }
-    setDailyRequiredOverride(dk, num);
+    setDailyRequiredOverride(dk, parseInt(trimmed, 10));
   }
   render();
 }
@@ -1734,6 +1789,7 @@ function showPatternPopover(targetTd, dk, pid) {
     b.onclick = (ev) => {
       ev.stopPropagation();
       const v = b.dataset.val;
+      pushUndo();
       setCell(state.currentCycle, dk, pid, v || null);
       pop.hidden = true;
       render();
@@ -1816,12 +1872,14 @@ function showTimeAdjustPopover(targetTd, dk, pid, readOnly = false) {
   }
   attachTimeInput(startInp);
   attachTimeInput(endInp);
+  let undoPushedThisSession = false;
   const apply = () => {
     const s = startInp.value, e = endInp.value;
     updateHoursDisplay();
     // HH:MM が完全に揃った時だけ state を更新
     const valid = /^\d{2}:\d{2}$/;
     if (!valid.test(s) || !valid.test(e)) return;
+    if (!undoPushedThisSession) { pushUndo(); undoPushedThisSession = true; }
     const isPattern = (s === pat.start && e === pat.end);
     setOverride(dk, pid, isPattern ? null : { start: s, end: e });
     render();
@@ -1830,6 +1888,7 @@ function showTimeAdjustPopover(targetTd, dk, pid, readOnly = false) {
   endInp.addEventListener('input', apply);
   pop.querySelector('#adj-reset').onclick = (ev) => {
     ev.stopPropagation();
+    if (!undoPushedThisSession) { pushUndo(); undoPushedThisSession = true; }
     setOverride(dk, pid, null);
     startInp.value = pat.start;
     endInp.value = pat.end;
@@ -2406,12 +2465,14 @@ document.getElementById('clear-execute').onclick = () => {
 
   if (type === 'all') {
     if (!confirm(`【全クリア】\n周期 ${c} の全データ (ロック含む) を完全消去します。\n本当によろしいですか?`)) return;
+    pushUndo();
     delete ss().cycles[c];
     if (ss().timeOverrides) delete ss().timeOverrides[c];
     if (ss().locks) delete ss().locks[c];
   } else {
     // except-locked: ロックされていないセル + その時間調整 を消去
     if (!confirm(`【ロック以外をクリア】\n周期 ${c} のロックされていないセルと時間調整を消去します。\nロック中のセルは維持されます。\nよろしいですか?`)) return;
+    pushUndo();
     const cycles = ss().cycles?.[c];
     const lockMap = ss().locks?.[c] || {};
     if (cycles) {
@@ -2489,6 +2550,7 @@ function renderSnapshotList() {
       const s = ss().snapshots.find(x => x.id === b.dataset.id);
       if (!s) return;
       if (!confirm(`「${s.name}」を復元します。\n現在の周期 ${s.cycle} のシフトデータを上書きします。よろしいですか?`)) return;
+      pushUndo();
       restoreSnapshot(s);
       renderSnapshotList();
     };
@@ -2554,6 +2616,7 @@ function autoAssign() {
 
 実行しますか?`;
   if (!confirm(msg)) return;
+  pushUndo();
 
   const { start, end } = cycleRange(state.currentCycle);
   const dates = listDates(start, end);
@@ -2902,6 +2965,7 @@ function autoAssignRest() {
 
 実行しますか?`;
   if (!confirm(msg)) return;
+  pushUndo();
 
   const { start, end } = cycleRange(state.currentCycle);
   const dates = listDates(start, end);
@@ -3093,11 +3157,13 @@ document.getElementById('do-import').onclick = () => {
       const imported = JSON.parse(r.result);
       if (type === 'all') {
         if (!confirm('全データを上書きします。現在の入力データ・設定・スナップショット全てが置き換わります。\n\n先に「全データ」をエクスポートしてバックアップを取っておくことをおすすめします。\n\n続行しますか?')) return;
+        pushUndo();
         state = migrate(imported);
         saveState(); render();
         alert('完全上書きインポート完了');
       } else if (type === 'settings') {
         if (!confirm('設定だけマージします。シフトの入力データ(休/出/時間/ロック/スナップショット) は維持されます。\n\n続行しますか?')) return;
+        pushUndo();
         if (imported.holidays) state.holidays = imported.holidays;
         const importedSheets = imported.sheets || {};
         for (const name of Object.keys(importedSheets)) {
@@ -3120,6 +3186,7 @@ document.getElementById('do-import').onclick = () => {
           if (firstName) sheetData = imported.sheets[firstName];
         }
         if (!sheetData) { alert('シートデータが見つかりません。ファイル形式を確認してください'); return; }
+        pushUndo();
         state.sheets[state.activeSheet] = JSON.parse(JSON.stringify(sheetData));
         state = migrate(state);
         saveState(); render();
@@ -3405,6 +3472,19 @@ document.getElementById('update-btn').onclick = async () => {
 };
 document.getElementById('import-btn').onclick = () => openTransferDialog('import');
 // 旧 import-file (隠し) は使わない
+
+// === Undo/Redo ボタン + キーボードショートカット ===
+document.getElementById('undo-btn').onclick = undo;
+document.getElementById('redo-btn').onclick = redo;
+document.addEventListener('keydown', (e) => {
+  // 入力欄では無効 (テキスト編集のundoを優先)
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+  if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+});
 
 render();
 maybeAutoFetchHolidays();
