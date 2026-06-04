@@ -2724,6 +2724,13 @@ function autoAssign() {
     const id = patternIdOf(v);
     return id && lateRoleIds.has(id);
   }
+  // 前日に他店ヘルプ(ヘ/半ヘ)に行っていた → 引き継ぎ未了なので早出は避けたい
+  function wasHelpYesterday(pid, dk) {
+    const prev = previousDateInfo(dk);
+    if (isClosed(prev.d, prev.dk)) return false;
+    const v = getCell(state.currentCycle, prev.dk, pid);
+    return isHelp(v) || isHalfHelp(v);
+  }
 
   for (const d of dates) {
     const dk = dateKey(d);
@@ -2782,11 +2789,17 @@ function autoAssign() {
     const earlyLockedCount = earlyId ? (lockedPatternCount[earlyId] || 0) : 0;
     const earlyNeed = earlyId ? Math.max(0, Math.min((sl.earlyCount || 0) - earlyLockedCount, req - assignedIds.size, avail.length)) : 0;
     if (earlyNeed > 0 && patById[earlyId]) {
-      const sorted = [...avail].sort((a, b) => {
-        const sa = cnt[a.id].earlyRole * 100 + (wasAnyLateRole(a.id, dk) ? -10 : 0) + Math.random();
-        const sb = cnt[b.id].earlyRole * 100 + (wasAnyLateRole(b.id, dk) ? -10 : 0) + Math.random();
-        return sa - sb;
-      });
+      // 早出スコア (低いほど選ばれる):
+      //  - 基本: earlyRole の公平性 (×100)
+      //  - 前日ヘルプ帰り: 引き継ぎ未了なので極力避ける (+1000 ≒ 最終手段)
+      //  - 前日遅出: 翌日早出が最も好ましい (-15 で優先)
+      const earlyScore = (id) => {
+        let s = cnt[id].earlyRole * 100;
+        if (wasHelpYesterday(id, dk)) s += 1000;
+        else if (wasAnyLateRole(id, dk)) s -= 15;
+        return s + Math.random();
+      };
+      const sorted = [...avail].sort((a, b) => earlyScore(a.id) - earlyScore(b.id));
       sorted.slice(0, earlyNeed).forEach(p => {
         setCell(state.currentCycle, dk, p.id, `work:${earlyId}`);
         cnt[p.id].earlyRole++;
