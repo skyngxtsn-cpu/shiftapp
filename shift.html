@@ -2807,33 +2807,12 @@ function autoAssign() {
       });
     }
 
-    // フィル(残り)枠の確保: 人員が少ない日でも「残り」パターンが
-    // 早出/遅出に食い潰されて消えないよう、遅出の割当を予約で抑える。
-    //  - 半日フラグ付きフィル(H): 遅出より優先(全遅出を譲る)。木曜「2人+半日1人」用。
-    //  - 通常フィル(F): 「閉め担当1人」を確保した上で、残り遅出より優先。土曜中番など。
-    let halfFillReserve = 0, fullFillReserve = 0;
-    for (const f of (sl.fills || [])) {
-      let fpid = f.patternId;
-      if (f.alt && patById[f.alt] && d.getDate() % 2 === 0) fpid = f.alt;
-      const fp = fpid && patById[fpid];
-      if (!fp) continue;
-      const remainCnt = Math.max(0, (f.count || 0) - (lockedPatternCount[fpid] || 0));
-      if (fp.halfDay) halfFillReserve += remainCnt;
-      else fullFillReserve += remainCnt;
-    }
-
     // 2. 遅出 (ロック済みの遅出分を引く)
+    // 優先順は 早出 → 遅出 → 残り(中番/半日)。人手が足りない日は早出・遅出を
+    // 先に埋め、残りパターンは余った分だけ入る(足りなければ不足として残る)。
     const lateId = sl.latePatternId;
     const lateLockedCount = lateId ? (lockedPatternCount[lateId] || 0) : 0;
-    const lateWant = Math.max(0, (sl.lateCount || 0) - lateLockedCount);
-    const remainingAvailForLate = avail.filter(p => !assignedIds.has(p.id)).length;
-    const closerKeep = Math.min(lateWant, 1); // 最低1人は閉め担当を確保(半日フィルが無い場合)
-    // 遅出に使える枠 = 「閉め1人確保」と「H・F を予約した残り」の大きい方
-    const lateRoom = Math.max(
-      Math.min(closerKeep, remainingAvailForLate - halfFillReserve),
-      remainingAvailForLate - halfFillReserve - fullFillReserve
-    );
-    const lateNeed = lateId ? Math.max(0, Math.min(lateWant, req - assignedIds.size, avail.length, lateRoom)) : 0;
+    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, avail.length)) : 0;
     if (lateNeed > 0 && patById[lateId]) {
       const lateAvail = avail.filter(p => !assignedIds.has(p.id));
       if (lateNeed === 1) {
@@ -2891,13 +2870,8 @@ function autoAssign() {
       }
     }
 
-    // 3. 残り (fills 配列を処理、ロック済みの該当パターンを引く)
-    //    人員が少ない日は半日フィルを先に確定させたいので halfDay を先頭に並べ替え
-    const fills = (sl.fills || []).slice().sort((a, b) => {
-      const ha = (patById[a.patternId] && patById[a.patternId].halfDay) ? 0 : 1;
-      const hb = (patById[b.patternId] && patById[b.patternId].halfDay) ? 0 : 1;
-      return ha - hb;
-    });
+    // 3. 残り (fills 配列を順に処理、ロック済みの該当パターンを引く)
+    const fills = sl.fills || [];
     for (const fill of fills) {
       const remainSlots = req - assignedIds.size;
       if (remainSlots <= 0) break;
