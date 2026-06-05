@@ -1236,15 +1236,14 @@ function setCellLock(dk, pid, value) {
   saveState();
 }
 // ロック編集モードのクリックで循環。
-// 出勤系セル(自店舗で勤務する正社員/パート): null → full → work → null (完全/出勤を選べる)
-// 休み系・ヘルプ・空セル: null → full → null (完全ロックのみ)
+// 出勤系セル(正社員/パートの出勤 + 来店ヘルプ ヘ+): null → full → work → null (完全/出勤を選べる)
+// 休み系・半ヘ・空セル: null → full → null (完全ロックのみ)
 function cycleCellLock(dk, pid) {
   const cur = getCellLock(dk, pid);
   const cellVal = getCell(state.currentCycle, dk, pid);
   const person = ss().people.find(p => p.id === pid);
-  const isRegular = person && !isHelperPerson(person);
-  // 「出勤」= 自店舗で勤務する正社員/パートの work セルのみ (時間再割当の余地がある)
-  const canWorkLock = isRegular && isWork(cellVal);
+  // 「出勤」= work セル (時間再割当の余地がある)。正社員/パート/来店ヘルプ(ヘ+)いずれも対象
+  const canWorkLock = !!person && isWork(cellVal);
   let next;
   if (canWorkLock) {
     if (cur === null) next = 'full';
