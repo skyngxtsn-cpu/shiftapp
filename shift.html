@@ -59,6 +59,10 @@
   td.cell.halfhelpin { background: linear-gradient(135deg, #a3d3ec 50%, #ffffff 50%); color: #0e4a72; font-weight: bold; font-size: 9px; }
   td.cell.paid { background: #d2a8f0; color: #4a1a70; font-weight: bold; }
   td.cell.paid-pat { background: #d2a8f0; color: #4a1a70; font-size: 10px; padding: 1px 2px; border: 2px solid #9b4fc0; }
+  /* 半日有給=紫の斜め半分 / 夏季休暇=ティール / 半日夏季=ティールの斜め半分 */
+  td.cell.halfpaid { background: linear-gradient(135deg, #d2a8f0 50%, #ffffff 50%); color: #4a1a70; font-weight: bold; font-size: 9px; }
+  td.cell.summer { background: #2bb3a3; color: #063b34; font-weight: bold; }
+  td.cell.halfsummer { background: linear-gradient(135deg, #2bb3a3 50%, #ffffff 50%); color: #063b34; font-weight: bold; font-size: 9px; }
   td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
   td.cell.locked-work { box-shadow: inset 0 0 0 3px #4a90e2; position: relative; }
   td.cell .lock-icon { position: absolute; top: 0; right: 1px; font-size: 9px; line-height: 1; pointer-events: none; }
@@ -929,7 +933,10 @@ function isHelp(v) { return typeof v === 'string' && v.startsWith('help'); }
 function isHalfOff(v) { return v === 'halfoff'; }
 function isHalfHelp(v) { return v === 'halfhelp'; }
 function isPaid(v) { return typeof v === 'string' && v.startsWith('paid'); }
-function isUnavailable(v) { return isOff(v) || isHelp(v) || isPaid(v); }
+function isHalfPaid(v) { return v === 'halfpaid'; }       // 半日有給 (-0.5人 / 有給×0.5時間)
+function isSummer(v) { return v === 'summer'; }           // 夏季休暇 (終日・有給と同扱い -1人 / 有給×1時間)
+function isHalfSummer(v) { return v === 'halfsummer'; }   // 半日夏季 (-0.5人 / 有給×0.5時間)
+function isUnavailable(v) { return isOff(v) || isHelp(v) || isPaid(v) || isSummer(v); }
 function patternIdOf(v) {
   if (!isWork(v) && !isHelp(v) && !isPaid(v)) return null;
   const i = v.indexOf(':');
@@ -1002,6 +1009,13 @@ function effectiveTimeRange(dk, pid, pat) {
   return null;
 }
 function cellHours(v, dk, pid) {
+  // 夏季休暇・半日有給・半日夏季 は有給(paid)パターンの時間を流用 (半日系は半分)
+  if (isSummer(v) || isHalfPaid(v) || isHalfSummer(v)) {
+    const pat = patternById('paid');
+    if (!pat) return 0;
+    const h = calcHours(pat.start, pat.end, pat.breakMin);
+    return isSummer(v) ? h : h / 2;
+  }
   if (!isWork(v) && !isHelp(v) && !isPaid(v)) return 0;
   let id = patternIdOf(v);
   // パターン未指定の paid/help セルは既定パターンを使う
@@ -1152,9 +1166,13 @@ function renderLegend() {
       <span><span class="swatch" style="background:#aaccff"></span>出 (絶対出勤)</span>
       <span><span class="swatch" style="background:#ffc266"></span>ヘ (他店ヘルプ・−1)</span>
       <span><span class="swatch" style="background:linear-gradient(135deg,#ffc266 50%,#fff 50%)"></span>半ヘ (半日他店ヘルプ・−0.5)</span>
-      <span><span class="swatch" style="background:#d2a8f0"></span>有 (有給・労働時間あり)</span>
+      <span><span class="swatch" style="background:#d2a8f0"></span>有 (有給・−1・労働時間あり)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,#d2a8f0 50%,#fff 50%)"></span>半有 (半日有給・−0.5)</span>
+      <span><span class="swatch" style="background:#2bb3a3"></span>夏 (夏季休暇・−1)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,#2bb3a3 50%,#fff 50%)"></span>半夏 (半日夏季・−0.5)</span>
       <span><span class="swatch" style="background:#a3d3ec"></span>ヘ+ (来店ヘルプ・店舗+1)</span>
-      <span>クリック: 空 → 休 → 半 → 出 → ヘ → 半ヘ → 有 → 空</span>
+      <span><b>クリック</b>: 空 → 休 → 半 → 出 → 空</span>
+      <span style="color:#7a3aa0;"><b>長押し / 右クリック</b>: ヘ・有・夏 などのメニュー</span>
       <span style="color:#0e4a72;">ヘルプ要員の行: 空 → ヘ+(終日) → 半ヘ+(半日) → 空</span>`;
   } else if (state.uiMode === 'time') {
     let html = `
@@ -1186,7 +1204,7 @@ function countUnavailableOnDay(dk) {
     if (isHelperPerson(p)) continue;
     const v = getCell(state.currentCycle, dk, p.id);
     if (isUnavailable(v)) c += 1;
-    else if (isHalfHelp(v)) c += 0.5;
+    else if (isHalfHelp(v) || isHalfPaid(v) || isHalfSummer(v)) c += 0.5;
   }
   return c;
 }
@@ -1322,6 +1340,9 @@ function renderGrid() {
           else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
           else if (isHelp(val)) { cls = 'cell help'; txt = 'ヘ'; }
           else if (isPaid(val)) { cls = 'cell paid'; txt = '有'; }
+          else if (isHalfPaid(val)) { cls = 'cell halfpaid'; txt = '半有'; }
+          else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
+          else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
           else if (isWork(val)) {
             // 半日勤務パターンが入っている場合は休みモードでも「半」と表示
             const id = patternIdOf(val);
@@ -1349,6 +1370,9 @@ function renderGrid() {
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
         else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
+        else if (isHalfPaid(val)) { cls = 'cell halfpaid'; txt = '半有'; }
+        else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
+        else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
           const pat = pid ? patternById(pid) : patternById('paid');
@@ -1394,6 +1418,9 @@ function renderGrid() {
         if (isOff(val)) { cls = 'cell off'; txt = '休'; }
         else if (isHalfOff(val)) { cls = 'cell halfoff'; txt = '半'; }
         else if (isHalfHelp(val)) { cls = 'cell halfhelp'; txt = '半ヘ'; }
+        else if (isHalfPaid(val)) { cls = 'cell halfpaid'; txt = '半有'; }
+        else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
+        else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
           const pat = pid ? patternById(pid) : patternById('paid');
@@ -1575,6 +1602,8 @@ function renderGrid() {
     }
     td.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      // 長押し直後のクリックは無視 (循環の誤動作防止)
+      if (td._longPressed) { td._longPressed = false; return; }
       const dk = td.dataset.date;
       const pid = td.dataset.person;
       // ロック編集モード: クリックで循環 (内容別)
@@ -1614,23 +1643,21 @@ function renderGrid() {
           else if (isWork(cur)) next = 'halfhelp';
           else next = null;
         } else {
-          // 通常: 7状態循環 null → off → halfoff → work → help → halfhelp → paid → null
+          // 通常: 主要のみ高速循環 空→休→半→出→空
+          // ヘ/半ヘ/有/半有/夏/半夏 は長押し(PCは右クリック)のメニューで設定
           if (!cur) next = 'off';
           else if (isOff(cur)) next = 'halfoff';
           else if (isHalfOff(cur)) next = 'work';
-          else if (isWork(cur)) next = 'help';
-          else if (isHelp(cur)) next = 'halfhelp';
-          else if (isHalfHelp(cur)) next = 'paid';
-          else next = null;
+          else next = null; // 出/ヘ/有/夏 など他の状態は全てクリア
         }
         pushUndo();
         setCell(state.currentCycle, dk, pid, next);
         render();
       } else if (state.uiMode === 'time') {
-        if (isOff(cur) || isHalfHelp(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur)) return;
         showPatternPopover(td, dk, pid);
       } else { // adjust
-        if (isOff(cur) || isHalfHelp(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur)) return;
         // 来店ヘルプの素の'work'は基本シフトに正規化してから時間調整
         if (isHelperRow && isWork(cur) && !patternIdOf(cur)) {
           const nv = helperWorkValue(cur);
@@ -1641,6 +1668,31 @@ function renderGrid() {
         showTimeAdjustPopover(td, dk, pid);
       }
     });
+    // 休み決めで長押し(モバイル)/右クリック(PC) → 休暇メニュー (通常行・非ロック編集・未ロックのみ)
+    const canOpenRestMenu = () => {
+      if (state.uiMode !== 'rest' || state.lockEditMode) return false;
+      const person = ss().people.find(x => x.id === td.dataset.person);
+      if (isHelperPerson(person)) return false;
+      if (getCellLock(td.dataset.date, td.dataset.person)) return false;
+      return true;
+    };
+    td.addEventListener('contextmenu', (ev) => {
+      if (!canOpenRestMenu()) return; // 既定の右クリックメニューを許可
+      ev.preventDefault();
+      showRestStatePopover(td, td.dataset.date, td.dataset.person);
+    });
+    let lpTimer = null;
+    td.addEventListener('touchstart', () => {
+      if (!canOpenRestMenu()) return;
+      lpTimer = setTimeout(() => {
+        td._longPressed = true;
+        showRestStatePopover(td, td.dataset.date, td.dataset.person);
+      }, 500);
+    }, { passive: true });
+    const cancelLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    td.addEventListener('touchend', cancelLP);
+    td.addEventListener('touchmove', cancelLP);
+    td.addEventListener('touchcancel', cancelLP);
   });
 }
 
@@ -1736,7 +1788,7 @@ function renderRestSummary() {
         const dk = dateKey(d);
         if (isClosed(d, dk)) continue;
         const v = getCell(state.currentCycle, dk, r.p.id);
-        if (isOff(v) || isHalfOff(v) || isHelp(v) || isPaid(v)) continue; // 既に休んでいる/半休
+        if (isOff(v) || isHalfOff(v) || isHelp(v) || isPaid(v) || isSummer(v) || isHalfPaid(v) || isHalfSummer(v)) continue; // 既に休んでいる/半休/有給/夏季
         const ov = effectiveOffValue(d, dk);
         if (ov === 0) continue; // 休み価値 0 の曜日は意味なし
         const avail = totalAvailableOnDay(dk);
@@ -1916,6 +1968,48 @@ function showPatternPopover(targetTd, dk, pid) {
   if (left + popW > window.scrollX + winW - 10) {
     left = window.scrollX + winW - popW - 10;
   }
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+// 休み決めの状態メニュー (長押し/右クリックで開く)。通常行用。
+function showRestStatePopover(targetTd, dk, pid) {
+  const pop = document.getElementById('pattern-popover');
+  const cur = getCell(state.currentCycle, dk, pid) || '';
+  const items = [
+    { val: '',           label: '— クリア（空）—', cls: 'pop-clear' },
+    { val: 'off',        label: '休 (休み)',                bg: '#ff9b9b' },
+    { val: 'halfoff',    label: '半 (半休)',                bg: 'linear-gradient(135deg,#ff9b9b 50%,#fff 50%)' },
+    { val: 'work',       label: '出 (出勤・時間未定)',       bg: '#aaccff' },
+    { val: 'help',       label: 'ヘ (他店ヘルプ・−1)',       bg: '#ffc266' },
+    { val: 'halfhelp',   label: '半ヘ (半日他店ヘルプ・−0.5)', bg: 'linear-gradient(135deg,#ffc266 50%,#fff 50%)' },
+    { val: 'paid',       label: '有 (有給・−1)',             bg: '#d2a8f0' },
+    { val: 'halfpaid',   label: '半有 (半日有給・−0.5)',      bg: 'linear-gradient(135deg,#d2a8f0 50%,#fff 50%)' },
+    { val: 'summer',     label: '夏 (夏季休暇・−1)',          bg: '#2bb3a3' },
+    { val: 'halfsummer', label: '半夏 (半日夏季・−0.5)',      bg: 'linear-gradient(135deg,#2bb3a3 50%,#fff 50%)' },
+  ];
+  let html = '';
+  for (const it of items) {
+    const sel = cur === it.val ? ' ★' : '';
+    const style = it.bg ? `background:${it.bg};` : '';
+    html += `<button class="${it.cls || ''}" data-val="${it.val}" style="${style}"><b>${it.label}${sel}</b></button>`;
+  }
+  pop.innerHTML = html;
+  pop.querySelectorAll('button[data-val]').forEach(b => {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      pushUndo();
+      setCell(state.currentCycle, dk, pid, b.dataset.val || null);
+      pop.hidden = true;
+      render();
+    };
+  });
+  const rect = targetTd.getBoundingClientRect();
+  let left = rect.left + window.scrollX;
+  let top = rect.bottom + window.scrollY + 2;
+  pop.hidden = false;
+  const popW = pop.offsetWidth;
+  const winW = window.innerWidth;
+  if (left + popW > window.scrollX + winW - 10) left = window.scrollX + winW - popW - 10;
   pop.style.left = `${left}px`;
   pop.style.top = `${top}px`;
 }
@@ -2851,7 +2945,8 @@ function autoAssign() {
       if (p.type === 'パート') return false; // パートは正社員ロジックの対象外
       if (isCellFullLocked(dk, p.id)) return false; // 完全ロックのみ除外 (出勤ロックは再割当対象)
       const v = getCell(state.currentCycle, dk, p.id);
-      return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v) && !isHalfHelp(v);
+      return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v) && !isHalfHelp(v)
+          && !isHalfPaid(v) && !isSummer(v) && !isHalfSummer(v);
     });
     if (avail.length === 0) continue;
 
@@ -3463,11 +3558,14 @@ function exportCSV() {
       if (isOff(v)) remarkRow[col] = '希望休';
       else if (isHelp(v)) remarkRow[col] = '他店ヘルプ';
       else if (isPaid(v)) remarkRow[col] = '有給';
+      else if (isSummer(v)) remarkRow[col] = '夏季休暇';
+      else if (isHalfSummer(v)) remarkRow[col] = '半日夏季';
+      else if (isHalfPaid(v)) remarkRow[col] = '半日有給';
 
-      // 時間情報 (work/help/paid + パターン or 既定パターン)
-      if (isWork(v) || isHelp(v) || isPaid(v)) {
+      // 時間情報 (work/help/paid/夏季 + パターン or 既定パターン)
+      if (isWork(v) || isHelp(v) || isPaid(v) || isSummer(v)) {
         let id = patternIdOf(v);
-        if (!id && isPaid(v)) id = 'paid';
+        if (!id && (isPaid(v) || isSummer(v))) id = 'paid'; // 夏季は有給パターンで計上
         if (!id && isHelp(v)) id = 'help_default';
         const pat = id ? patternById(id) : null;
         if (pat) {
@@ -3481,6 +3579,11 @@ function exportCSV() {
         } else {
           hoursRow[col] = '0:00';
         }
+      } else if (isHalfPaid(v) || isHalfSummer(v)) {
+        // 半日有給/半日夏季: 有給×0.5 の時間のみ計上 (出退勤は手入力前提で空欄)
+        const h = cellHours(v, dk, p.id);
+        hoursRow[col] = formatHHMM(h);
+        monthTotal += h;
       } else {
         // off / null / 閉局: 0:00
         hoursRow[col] = '0:00';
