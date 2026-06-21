@@ -284,6 +284,7 @@
     <button id="mode-adjust" class="mode-btn">最終調整</button>
   </div>
   <button id="auto-rest-btn" hidden title="各メンバーに週1日休みを自動配置">🎲 休み自動割当</button>
+  <button id="apply-rules-btn" hidden title="個人ルール(毎週固定)を空きセルに反映">📋 個人ルール反映</button>
   <button id="auto-assign-btn" hidden>🎲 自動割り当て</button>
   <button id="lock-edit-btn">🔒 ロック編集</button>
   <button id="snapshot-btn">📷 スナップショット</button>
@@ -490,6 +491,13 @@
     <select id="helper-in-pattern" style="font-size:13px;padding:3px 6px;min-width:180px;"></select>
   </div>
 
+  <h3>個人ルール（毎週固定の勤務）</h3>
+  <p class="hint">「Aさんは毎週月曜は在宅」のような毎週固定の勤務を登録します。グリッドの「📋 個人ルール反映」ボタンで、現在の周期の<b>空きセルだけ</b>に反映されます（既に入っている所は触りません）。時間自動割り当てでも上書きされません。在宅などのパターンは上の「シフトパターン」で作成してください。</p>
+  <table class="patterns-table" id="personal-rules-table"></table>
+  <div class="add-row" style="margin-top:6px;">
+    <button id="add-rule-btn">+ ルール追加</button>
+  </div>
+
   <h3>曜日ごとの自動割当ルール</h3>
   <p class="hint">🎲 自動割り当て の構成。時期によって変わる場合はここで編集してください。「なし」を選ぶとそのスロットは使われません。残り代替を指定すると日付の偶奇でローテーションされます（木曜の半日午前/午後など）。</p>
   <table class="patterns-table" id="slots-table"></table>
@@ -585,7 +593,8 @@ function defaultSheetData(dept) {
       weekdays: defaultWeekdaySettings(),
       minWeeklyRest: 1.0,
       shiftPatterns: defaultShiftPatterns(),
-      personTypes: defaultPersonTypes()
+      personTypes: defaultPersonTypes(),
+      personalRules: [] // 個人ルール: { personId, weekday, patternId } の配列 (毎週固定)
     }
   };
   if (dept === 'pharmacist') {
@@ -757,6 +766,8 @@ function migrate(d) {
     if (!sheet.settings.personTypes['ヘルプ']) sheet.settings.personTypes['ヘルプ'] = { kind: 'helper' };
     // 来店ヘルプの基本シフト (既定: ヘルプパターン)
     if (!sheet.settings.helperInPatternId) sheet.settings.helperInPatternId = 'help_default';
+    // 個人ルール (毎週固定の勤務パターン)
+    if (!Array.isArray(sheet.settings.personalRules)) sheet.settings.personalRules = [];
     if (!Array.isArray(sheet.people)) sheet.people = [];
     for (const p of sheet.people) {
       if (!p.type) p.type = '正社員';
@@ -1144,6 +1155,7 @@ function renderModeToggle() {
   document.getElementById('time-summary').hidden = !(state.uiMode === 'time' || state.uiMode === 'adjust');
   document.getElementById('auto-assign-btn').hidden = state.uiMode !== 'time';
   document.getElementById('auto-rest-btn').hidden = state.uiMode !== 'rest';
+  document.getElementById('apply-rules-btn').hidden = state.uiMode !== 'rest';
   const lockBtn = document.getElementById('lock-edit-btn');
   if (state.lockEditMode) {
     lockBtn.classList.add('lock-edit-active');
@@ -1196,6 +1208,16 @@ function countOffOnDay(dk) {
   let c = 0;
   for (const p of ss().people) if (isOff(getCell(state.currentCycle, dk, p.id))) c++;
   return c;
+}
+// 個人ルールがそのセルを「固定」中か (ルールあり & 現在セルがルールのパターンと一致)。
+// 時間自動割り当てで在宅などを上書きしないために使う。
+function personalRuleCovers(pid, wd, dk) {
+  const rules = ss().settings.personalRules;
+  if (!Array.isArray(rules) || rules.length === 0) return false;
+  const v = getCell(state.currentCycle, dk, pid);
+  if (!isWork(v)) return false;
+  const id = patternIdOf(v);
+  return rules.some(r => r.personId === pid && r.weekday === wd && r.patternId === id);
 }
 function countUnavailableOnDay(dk) {
   // 休 / 他店ヘルプ / 有給 = 1人分不在、半ヘ (半日他店ヘルプ) = 0.5人分不在
@@ -2120,6 +2142,7 @@ function openSettings() {
   renderWeekdayTable();
   renderHolidaysList();
   renderHelperInSelect();
+  renderPersonalRulesTable();
   document.getElementById('min-weekly-rest').value = ss().settings.minWeeklyRest;
   document.getElementById('part-weekly-limit').value = partWeeklyLimit();
   document.getElementById('fetch-status').textContent = '';
@@ -2500,6 +2523,56 @@ document.getElementById('add-pattern-btn').onclick = () => {
     id: `pat${n}`, name: `新パターン${n}`, start: '09:00', end: '18:00', breakMin: 60, color: '#e0e0e0'
   });
   saveState(); renderPatternsTable(); render();
+};
+
+// 個人ルール (毎週固定の勤務パターン)
+function renderPersonalRulesTable() {
+  const tbl = document.getElementById('personal-rules-table');
+  if (!tbl) return;
+  if (!Array.isArray(ss().settings.personalRules)) ss().settings.personalRules = [];
+  const rules = ss().settings.personalRules;
+  const regulars = ss().people.filter(p => !isHelperPerson(p));
+  const patterns = ss().settings.shiftPatterns;
+  const openWds = []; for (let i = 0; i < 7; i++) if (!ss().settings.weekdays[i].closed) openWds.push(i);
+  const personOpts = (selId) => regulars.map(p => `<option value="${p.id}" ${p.id === selId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  const wdOpts = (selWd) => openWds.map(i => `<option value="${i}" ${i === selWd ? 'selected' : ''}>${WD[i]}曜</option>`).join('');
+  const patOpts = (selId) => patterns.map(p => `<option value="${p.id}" ${p.id === selId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+
+  let html = '<thead><tr><th>人</th><th>曜日</th><th>内容（パターン）</th><th></th></tr></thead><tbody>';
+  if (rules.length === 0) {
+    html += '<tr><td colspan="4" style="color:#999;font-size:12px;">ルールなし（「+ ルール追加」で追加）</td></tr>';
+  }
+  rules.forEach((r, idx) => {
+    html += `<tr>
+      <td><select data-ridx="${idx}" data-rfield="personId">${personOpts(r.personId)}</select></td>
+      <td><select data-ridx="${idx}" data-rfield="weekday">${wdOpts(r.weekday)}</select></td>
+      <td><select data-ridx="${idx}" data-rfield="patternId">${patOpts(r.patternId)}</select></td>
+      <td><button class="del-rule danger" data-ridx="${idx}" style="font-size:11px;padding:1px 6px;">×</button></td>
+    </tr>`;
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('select[data-rfield]').forEach(sel => {
+    sel.onchange = () => {
+      const idx = parseInt(sel.dataset.ridx);
+      const field = sel.dataset.rfield;
+      if (!rules[idx]) return;
+      rules[idx][field] = (field === 'weekday') ? parseInt(sel.value) : sel.value;
+      saveState();
+    };
+  });
+  tbl.querySelectorAll('.del-rule').forEach(b => {
+    b.onclick = () => { rules.splice(parseInt(b.dataset.ridx), 1); saveState(); renderPersonalRulesTable(); };
+  });
+}
+document.getElementById('add-rule-btn').onclick = () => {
+  if (!Array.isArray(ss().settings.personalRules)) ss().settings.personalRules = [];
+  const regulars = ss().people.filter(p => !isHelperPerson(p));
+  const patterns = ss().settings.shiftPatterns;
+  if (regulars.length === 0 || patterns.length === 0) { alert('メンバーとシフトパターンを先に登録してください'); return; }
+  let firstOpenWd = 1; for (let i = 0; i < 7; i++) { if (!ss().settings.weekdays[i].closed) { firstOpenWd = i; break; } }
+  ss().settings.personalRules.push({ personId: regulars[0].id, weekday: firstOpenWd, patternId: patterns[0].id });
+  saveState(); renderPersonalRulesTable();
 };
 
 function renderWeekdayTable() {
@@ -2910,12 +2983,12 @@ function autoAssign() {
     const lockedPatternCount = {}; // patternId -> count of locked cells using it
     let lockedLateMembers = [];
 
-    // 完全ロック(full)済みセルのみ「割当済み」扱いにし、cnt にも反映 (正社員のみ)
+    // 完全ロック(full)済みセル + 個人ルール固定セルを「割当済み」扱いにし、cnt にも反映 (正社員のみ)
     // 出勤ロック(work)は時間の再割当対象なので avail に含める (ここではスキップ)
     for (const p of ss().people) {
       if (isHelperPerson(p)) continue;
       if (p.type === 'パート') continue; // パートは別ロジック
-      if (!isCellFullLocked(dk, p.id)) continue;
+      if (!isCellFullLocked(dk, p.id) && !personalRuleCovers(p.id, wd, dk)) continue;
       const v = getCell(state.currentCycle, dk, p.id);
       if (isOff(v) || isHelp(v)) continue; // off/help は割当対象外なのでカウントだけ無視
       if (isWork(v)) {
@@ -2943,7 +3016,8 @@ function autoAssign() {
     const avail = ss().people.filter(p => {
       if (isHelperPerson(p)) return false;
       if (p.type === 'パート') return false; // パートは正社員ロジックの対象外
-      if (isCellFullLocked(dk, p.id)) return false; // 完全ロックのみ除外 (出勤ロックは再割当対象)
+      if (isCellFullLocked(dk, p.id)) return false; // 完全ロックは除外 (出勤ロックは再割当対象)
+      if (personalRuleCovers(p.id, wd, dk)) return false; // 個人ルール固定セルは再割当しない
       const v = getCell(state.currentCycle, dk, p.id);
       return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v) && !isHalfHelp(v)
           && !isHalfPaid(v) && !isSummer(v) && !isHalfSummer(v);
@@ -3329,6 +3403,44 @@ function autoAssignRest() {
   render();
 }
 document.getElementById('auto-rest-btn').onclick = autoAssignRest;
+
+// 個人ルール反映: 現在の周期の該当曜日の「空きセル」だけに、ルールのパターンを入れる
+function applyPersonalRules() {
+  const rules = (ss().settings.personalRules || []).filter(r => r.personId && r.patternId && r.weekday !== undefined && r.weekday !== null);
+  if (rules.length === 0) { alert('個人ルールが登録されていません。\n設定 → 個人ルール で追加してください。'); return; }
+  const msg = `個人ルール（毎週固定）を現在の周期に反映します。
+
+・該当曜日の「空きセル」だけに入れます（既に入っている所は触りません）
+・🔒完全ロックのセルは対象外
+・閉局/祝日は対象外
+
+実行しますか?`;
+  if (!confirm(msg)) return;
+  pushUndo();
+  const { start, end } = cycleRange(state.currentCycle);
+  const dates = listDates(start, end);
+  let applied = 0, skipped = 0;
+  for (const d of dates) {
+    const dk = dateKey(d);
+    if (isClosed(d, dk)) continue;
+    const wd = d.getDay();
+    for (const r of rules) {
+      if (r.weekday !== wd) continue;
+      if (!patternById(r.patternId)) continue; // 削除されたパターンは無視
+      const person = ss().people.find(x => x.id === r.personId);
+      if (!person || isHelperPerson(person)) continue;
+      const cur = getCell(state.currentCycle, dk, r.personId);
+      if (cur !== null) { skipped++; continue; }          // 既に何か入っている → 触らない
+      if (isCellFullLocked(dk, r.personId)) { skipped++; continue; } // 完全ロックは尊重
+      setCell(state.currentCycle, dk, r.personId, 'work:' + r.patternId);
+      applied++;
+    }
+  }
+  saveState();
+  render();
+  alert(`個人ルールを反映しました。\n\n反映: ${applied}件${skipped ? `\nスキップ(既入力/ロック): ${skipped}件` : ''}`);
+}
+document.getElementById('apply-rules-btn').onclick = applyPersonalRules;
 
 document.getElementById('prev').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, -1); saveState(); render(); };
 document.getElementById('next').onclick = () => { state.currentCycle = shiftCycleKey(state.currentCycle, +1); saveState(); render(); };
