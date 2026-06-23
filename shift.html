@@ -67,6 +67,9 @@
   td.cell.wishoff { background: repeating-linear-gradient(45deg, #ff9b9b, #ff9b9b 6px, #ffc2c2 6px, #ffc2c2 12px); color: #7a1010; font-weight: bold; }
   td.cell.wishpaid { background: repeating-linear-gradient(45deg, #d2a8f0, #d2a8f0 6px, #e8ccf7 6px, #e8ccf7 12px); color: #4a1a70; font-weight: bold; font-size: 10px; }
   td.cell.wishsummer { background: repeating-linear-gradient(45deg, #2bb3a3, #2bb3a3 6px, #6fd0c4 6px, #6fd0c4 12px); color: #063b34; font-weight: bold; font-size: 10px; }
+  /* 希望×半日 = 斜め半分 + ストライプ */
+  td.cell.wishhalfpaid { background: linear-gradient(135deg, transparent 50%, #fff 50%), repeating-linear-gradient(45deg, #d2a8f0, #d2a8f0 5px, #e8ccf7 5px, #e8ccf7 10px); color: #4a1a70; font-weight: bold; font-size: 9px; }
+  td.cell.wishhalfsummer { background: linear-gradient(135deg, transparent 50%, #fff 50%), repeating-linear-gradient(45deg, #2bb3a3, #2bb3a3 5px, #6fd0c4 5px, #6fd0c4 10px); color: #063b34; font-weight: bold; font-size: 9px; }
   td.cell.locked { box-shadow: inset 0 0 0 3px #d4a017; position: relative; }
   td.cell.locked-work { box-shadow: inset 0 0 0 3px #4a90e2; position: relative; }
   td.cell .lock-icon { position: absolute; top: 0; right: 1px; font-size: 9px; line-height: 1; pointer-events: none; }
@@ -954,6 +957,8 @@ function isHalfSummer(v) { return v === 'halfsummer'; }   // 半日夏季 (-0.5�
 function isWishOff(v) { return v === 'wishoff'; }         // 希望休 (休と同じ計算)
 function isWishPaid(v) { return v === 'wishpaid'; }       // 希望有給 (有と同じ計算)
 function isWishSummer(v) { return v === 'wishsummer'; }   // 希望夏季 (夏と同じ計算)
+function isWishHalfPaid(v) { return v === 'wishhalfpaid'; }     // 希望半日有給 (半有と同じ計算)
+function isWishHalfSummer(v) { return v === 'wishhalfsummer'; } // 希望半日夏季 (半夏と同じ計算)
 function isUnavailable(v) { return isOff(v) || isHelp(v) || isPaid(v) || isSummer(v) || isWishOff(v) || isWishPaid(v) || isWishSummer(v); }
 function patternIdOf(v) {
   if (!isWork(v) && !isHelp(v) && !isPaid(v)) return null;
@@ -1027,8 +1032,8 @@ function effectiveTimeRange(dk, pid, pat) {
   return null;
 }
 function cellHours(v, dk, pid) {
-  // 夏季/希望有給/希望夏季 は有給1日分、半日有給/半日夏季 は半分。すべて有給(paid)パターン基準
-  if (isSummer(v) || isWishSummer(v) || isWishPaid(v) || isHalfPaid(v) || isHalfSummer(v)) {
+  // 夏季/希望有給/希望夏季 は有給1日分、半日系(半有/半夏/半希有/半希夏)は半分。すべて有給(paid)パターン基準
+  if (isSummer(v) || isWishSummer(v) || isWishPaid(v) || isHalfPaid(v) || isHalfSummer(v) || isWishHalfPaid(v) || isWishHalfSummer(v)) {
     const pat = patternById('paid');
     if (!pat) return 0;
     const h = calcHours(pat.start, pat.end, pat.breakMin);
@@ -1193,6 +1198,8 @@ function renderLegend() {
       <span><span class="swatch" style="background:#2bb3a3"></span>夏 (夏季休暇・−1)</span>
       <span><span class="swatch" style="background:repeating-linear-gradient(45deg,#2bb3a3,#2bb3a3 5px,#6fd0c4 5px,#6fd0c4 10px)"></span>希夏 (希望夏季)</span>
       <span><span class="swatch" style="background:linear-gradient(135deg,#2bb3a3 50%,#fff 50%)"></span>半夏 (半日夏季・−0.5)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,transparent 50%,#fff 50%),repeating-linear-gradient(45deg,#d2a8f0,#d2a8f0 4px,#e8ccf7 4px,#e8ccf7 8px)"></span>半希有 (希望半日有給)</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,transparent 50%,#fff 50%),repeating-linear-gradient(45deg,#2bb3a3,#2bb3a3 4px,#6fd0c4 4px,#6fd0c4 8px)"></span>半希夏 (希望半日夏季)</span>
       <span><span class="swatch" style="background:#a3d3ec"></span>ヘ+ (来店ヘルプ・店舗+1)</span>
       <span><b>クリック</b>: 空 → 休 → 半 → 出 → 空</span>
       <span style="color:#7a3aa0;"><b>長押し / 右クリック</b>: 希望休・有・夏 などのメニュー</span>
@@ -1248,7 +1255,7 @@ function countUnavailableOnDay(dk) {
     if (isHelperPerson(p)) continue;
     const v = getCell(state.currentCycle, dk, p.id);
     if (isUnavailable(v)) c += 1;
-    else if (isHalfHelp(v) || isHalfPaid(v) || isHalfSummer(v)) c += half;
+    else if (isHalfHelp(v) || isHalfPaid(v) || isHalfSummer(v) || isWishHalfPaid(v) || isWishHalfSummer(v)) c += half;
   }
   return c;
 }
@@ -1391,6 +1398,8 @@ function renderGrid() {
           else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
           else if (isWishSummer(val)) { cls = 'cell wishsummer'; txt = '希夏'; }
           else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
+          else if (isWishHalfPaid(val)) { cls = 'cell wishhalfpaid'; txt = '半希有'; }
+          else if (isWishHalfSummer(val)) { cls = 'cell wishhalfsummer'; txt = '半希夏'; }
           else if (isWork(val)) {
             // 半日勤務パターンが入っている場合は休みモードでも「半」と表示
             const id = patternIdOf(val);
@@ -1423,6 +1432,8 @@ function renderGrid() {
         else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
         else if (isWishSummer(val)) { cls = 'cell wishsummer'; txt = '希夏'; }
         else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
+        else if (isWishHalfPaid(val)) { cls = 'cell wishhalfpaid'; txt = '半希有'; }
+        else if (isWishHalfSummer(val)) { cls = 'cell wishhalfsummer'; txt = '半希夏'; }
         else if (isWishPaid(val)) { cls = 'cell wishpaid'; txt = '希有'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
@@ -1474,6 +1485,8 @@ function renderGrid() {
         else if (isSummer(val)) { cls = 'cell summer'; txt = '夏'; }
         else if (isWishSummer(val)) { cls = 'cell wishsummer'; txt = '希夏'; }
         else if (isHalfSummer(val)) { cls = 'cell halfsummer'; txt = '半夏'; }
+        else if (isWishHalfPaid(val)) { cls = 'cell wishhalfpaid'; txt = '半希有'; }
+        else if (isWishHalfSummer(val)) { cls = 'cell wishhalfsummer'; txt = '半希夏'; }
         else if (isWishPaid(val)) { cls = 'cell wishpaid'; txt = '希有'; }
         else if (isPaid(val)) {
           const pid = patternIdOf(val);
@@ -1708,10 +1721,10 @@ function renderGrid() {
         setCell(state.currentCycle, dk, pid, next);
         render();
       } else if (state.uiMode === 'time') {
-        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur) || isWishOff(cur) || isWishPaid(cur) || isWishSummer(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur) || isWishOff(cur) || isWishPaid(cur) || isWishSummer(cur) || isWishHalfPaid(cur) || isWishHalfSummer(cur)) return;
         showPatternPopover(td, dk, pid);
       } else { // adjust
-        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur) || isWishOff(cur) || isWishPaid(cur) || isWishSummer(cur)) return;
+        if (isOff(cur) || isHalfHelp(cur) || isHalfPaid(cur) || isSummer(cur) || isHalfSummer(cur) || isWishOff(cur) || isWishPaid(cur) || isWishSummer(cur) || isWishHalfPaid(cur) || isWishHalfSummer(cur)) return;
         // 来店ヘルプの素の'work'は基本シフトに正規化してから時間調整
         if (isHelperRow && isWork(cur) && !patternIdOf(cur)) {
           const nv = helperWorkValue(cur);
@@ -1842,7 +1855,7 @@ function renderRestSummary() {
         const dk = dateKey(d);
         if (isClosed(d, dk)) continue;
         const v = getCell(state.currentCycle, dk, r.p.id);
-        if (isOff(v) || isHalfOff(v) || isHelp(v) || isPaid(v) || isSummer(v) || isHalfPaid(v) || isHalfSummer(v) || isWishOff(v) || isWishPaid(v) || isWishSummer(v)) continue; // 既に休み/有給/夏季/希望系
+        if (isOff(v) || isHalfOff(v) || isHelp(v) || isPaid(v) || isSummer(v) || isHalfPaid(v) || isHalfSummer(v) || isWishOff(v) || isWishPaid(v) || isWishSummer(v) || isWishHalfPaid(v) || isWishHalfSummer(v)) continue; // 既に休み/有給/夏季/希望系
         const ov = effectiveOffValue(d, dk);
         if (ov === 0) continue; // 休み価値 0 の曜日は意味なし
         const avail = totalAvailableOnDay(dk);
@@ -2040,9 +2053,11 @@ function showRestStatePopover(targetTd, dk, pid) {
     { val: 'paid',       label: '有 (有給・−1)',             bg: '#d2a8f0' },
     { val: 'wishpaid',   label: '希有 (希望有給・−1)',        bg: 'repeating-linear-gradient(45deg,#d2a8f0,#d2a8f0 6px,#e8ccf7 6px,#e8ccf7 12px)' },
     { val: 'halfpaid',   label: '半有 (半日有給・−0.5)',      bg: 'linear-gradient(135deg,#d2a8f0 50%,#fff 50%)' },
+    { val: 'wishhalfpaid', label: '半希有 (希望半日有給・−0.5)', bg: 'linear-gradient(135deg,transparent 50%,#fff 50%),repeating-linear-gradient(45deg,#d2a8f0,#d2a8f0 5px,#e8ccf7 5px,#e8ccf7 10px)' },
     { val: 'summer',     label: '夏 (夏季休暇・−1)',          bg: '#2bb3a3' },
     { val: 'wishsummer', label: '希夏 (希望夏季・−1)',        bg: 'repeating-linear-gradient(45deg,#2bb3a3,#2bb3a3 6px,#6fd0c4 6px,#6fd0c4 12px)' },
     { val: 'halfsummer', label: '半夏 (半日夏季・−0.5)',      bg: 'linear-gradient(135deg,#2bb3a3 50%,#fff 50%)' },
+    { val: 'wishhalfsummer', label: '半希夏 (希望半日夏季・−0.5)', bg: 'linear-gradient(135deg,transparent 50%,#fff 50%),repeating-linear-gradient(45deg,#2bb3a3,#2bb3a3 5px,#6fd0c4 5px,#6fd0c4 10px)' },
   ];
   let html = '';
   for (const it of items) {
@@ -3056,7 +3071,8 @@ function autoAssign() {
       const v = getCell(state.currentCycle, dk, p.id);
       return !isOff(v) && !isHelp(v) && !isPaid(v) && !isHalfOff(v) && !isHalfHelp(v)
           && !isHalfPaid(v) && !isSummer(v) && !isHalfSummer(v)
-          && !isWishOff(v) && !isWishPaid(v) && !isWishSummer(v);
+          && !isWishOff(v) && !isWishPaid(v) && !isWishSummer(v)
+          && !isWishHalfPaid(v) && !isWishHalfSummer(v);
     });
     if (avail.length === 0) continue;
 
@@ -3710,6 +3726,8 @@ function exportCSV() {
       else if (isWishPaid(v)) remarkRow[col] = '希有給';
       else if (isSummer(v)) remarkRow[col] = '夏休';
       else if (isWishSummer(v)) remarkRow[col] = '希夏休';
+      else if (isWishHalfPaid(v)) remarkRow[col] = '半希有給';
+      else if (isWishHalfSummer(v)) remarkRow[col] = '半希夏休';
       else if (isHalfSummer(v)) remarkRow[col] = '半日夏季';
       else if (isHalfPaid(v)) remarkRow[col] = '半日有給';
 
@@ -3730,8 +3748,8 @@ function exportCSV() {
         } else {
           hoursRow[col] = '0:00';
         }
-      } else if (isHalfPaid(v) || isHalfSummer(v)) {
-        // 半日有給/半日夏季: 有給×0.5 の時間のみ計上 (出退勤は手入力前提で空欄)
+      } else if (isHalfPaid(v) || isHalfSummer(v) || isWishHalfPaid(v) || isWishHalfSummer(v)) {
+        // 半日有給/半日夏季(希望含む): 有給×0.5 の時間のみ計上 (出退勤は手入力前提で空欄)
         const h = cellHours(v, dk, p.id);
         hoursRow[col] = formatHHMM(h);
         monthTotal += h;
