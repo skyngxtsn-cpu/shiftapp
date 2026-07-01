@@ -299,6 +299,8 @@
   <button id="settings-btn">⚙ 設定</button>
   <button id="export-btn">エクスポート</button>
   <button id="csv-btn">📊 CSV出力</button>
+  <button id="csv-import-btn" title="シフトCSVを取り込む(プレビューあり)">📥 CSV取込</button>
+  <input type="file" id="csv-import-file" accept=".csv" hidden>
   <button id="print-btn" title="現在の表を印刷">🖨 印刷</button>
   <button id="update-btn" title="サーバから最新版を取得して再読み込み">🔄 更新確認</button>
   <button id="import-btn">インポート</button>
@@ -462,6 +464,16 @@
   </div>
 </dialog>
 
+<dialog id="csv-import-dialog">
+  <h2>📥 CSV取り込みプレビュー</h2>
+  <p class="hint">内容を確認して、合っていれば「取り込む」を押してください。取り込むと<b>対象周期・対象シートの該当セルを上書き</b>します（実行前にUndo可）。</p>
+  <div id="csv-import-summary" style="font-size:13px;line-height:1.6;"></div>
+  <div class="dialog-actions" style="margin-top:10px;">
+    <button id="csv-import-cancel">キャンセル</button>
+    <button id="csv-import-apply" class="primary">この内容で取り込む</button>
+  </div>
+</dialog>
+
 <dialog id="settings-dialog">
   <h2>⚙ 設定</h2>
 
@@ -497,6 +509,10 @@
   <div style="margin-top:4px;">
     <select id="helper-in-pattern" style="font-size:13px;padding:3px 6px;min-width:180px;"></select>
   </div>
+
+  <h3>ヘルプ地名（CSV取込用）</h3>
+  <p class="hint">CSV取り込み時、備考欄がこの地名・店名のいずれかに一致したら「他店ヘルプ」として取り込みます（1行に1つ）。例: 森ノ宮 / 南千里。決まった語（希望休・有給・夏休 等）やこれ以外のメモ（早希望 等）は通常どおり扱われます。</p>
+  <textarea id="help-places" rows="3" style="width:100%;max-width:320px;font-size:13px;padding:4px 6px;" placeholder="森ノ宮&#10;南千里"></textarea>
 
   <h3>個人ルール（毎週固定の勤務）</h3>
   <p class="hint">「Aさんは毎週月曜は在宅」のような毎週固定の勤務を登録します。グリッドの「📋 個人ルール反映」ボタンで、現在の周期の<b>空きセルだけ</b>に反映されます（既に入っている所は触りません）。時間自動割り当てでも上書きされません。在宅などのパターンは上の「シフトパターン」で作成してください。</p>
@@ -601,7 +617,8 @@ function defaultSheetData(dept) {
       minWeeklyRest: 1.0,
       shiftPatterns: defaultShiftPatterns(),
       personTypes: defaultPersonTypes(),
-      personalRules: [] // 個人ルール: { personId, weekday, patternId } の配列 (毎週固定)
+      personalRules: [], // 個人ルール: { personId, weekday, patternId } の配列 (毎週固定)
+      helpPlaceNames: [] // CSV取込時に「他店ヘルプ」とみなす地名・店名のリスト
     }
   };
   if (dept === 'pharmacist') {
@@ -775,6 +792,8 @@ function migrate(d) {
     if (!sheet.settings.helperInPatternId) sheet.settings.helperInPatternId = 'help_default';
     // 個人ルール (毎週固定の勤務パターン)
     if (!Array.isArray(sheet.settings.personalRules)) sheet.settings.personalRules = [];
+    // CSV取込でヘルプ扱いにする地名リスト
+    if (!Array.isArray(sheet.settings.helpPlaceNames)) sheet.settings.helpPlaceNames = [];
     if (!Array.isArray(sheet.people)) sheet.people = [];
     for (const p of sheet.people) {
       if (!p.type) p.type = '正社員';
@@ -2193,10 +2212,21 @@ function openSettings() {
   renderHolidaysList();
   renderHelperInSelect();
   renderPersonalRulesTable();
+  renderHelpPlaces();
   document.getElementById('min-weekly-rest').value = ss().settings.minWeeklyRest;
   document.getElementById('part-weekly-limit').value = partWeeklyLimit();
   document.getElementById('fetch-status').textContent = '';
   document.getElementById('settings-dialog').showModal();
+}
+function renderHelpPlaces() {
+  const ta = document.getElementById('help-places');
+  if (!ta) return;
+  if (!Array.isArray(ss().settings.helpPlaceNames)) ss().settings.helpPlaceNames = [];
+  ta.value = ss().settings.helpPlaceNames.join('\n');
+  ta.onchange = () => {
+    ss().settings.helpPlaceNames = ta.value.split(/[\n,、]/).map(s => s.trim()).filter(Boolean);
+    saveState();
+  };
 }
 function renderHelperInSelect() {
   const sel = document.getElementById('helper-in-pattern');
@@ -3778,6 +3808,187 @@ function exportCSV() {
 }
 
 document.getElementById('csv-btn').onclick = exportCSV;
+
+// === CSV取り込み (逆輸入) ===
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // BOM除去
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\r') { /* CRLFの\rは無視 */ }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+  }
+  if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+function normTime(t) {
+  t = (t || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(t)) return null;
+  const [h, m] = t.split(':');
+  return `${parseInt(h, 10)}:${m}`;
+}
+function findPatternByTime(start, end) {
+  const s = normTime(start); if (!s) return null;
+  const e = normTime(end);
+  for (const p of ss().settings.shiftPatterns) {
+    if (normTime(p.start) === s && (!e || normTime(p.end) === e)) return p.id;
+  }
+  return null;
+}
+// 他店ヘルプは時刻が一致するなら既定の help_default を優先 (表示が「ヘ:ヘルプ」で揃う)
+function findHelpPatternByTime(start, end) {
+  const hp = patternById('help_default');
+  const s = normTime(start);
+  if (hp && s && normTime(hp.start) === s) {
+    const e = normTime(end);
+    if (!e || normTime(hp.end) === e) return 'help_default';
+  }
+  return findPatternByTime(start, end);
+}
+function importValLabel(val) {
+  const m = { off:'休', wishoff:'希望休', paid:'有', wishpaid:'希有', summer:'夏', wishsummer:'希夏',
+    halfpaid:'半有', halfsummer:'半夏', wishhalfpaid:'半希有', wishhalfsummer:'半希夏', work:'出(時間未定)' };
+  if (m[val]) return m[val];
+  if (val === 'help' || val.startsWith('help:')) return 'ヘ';
+  if (val.startsWith('work:')) { const p = patternById(patternIdOf(val)); return '出(' + (p ? p.name : '?') + ')'; }
+  return val;
+}
+function analyzeCsvImport(rows) {
+  const res = { ok:false, error:'', year:null, month:null, cycleKey:null, sheetKey:state.activeSheet, sheetGuess:null, members:[], warnings:[], dayNotes:{}, typeCounts:{}, cellCount:0 };
+  // タイトル行からシート推定
+  const titleRow = rows.find(r => (r[0]||'').includes('シフト'));
+  if (titleRow) { const t = titleRow[0]; if (t.includes('事務')) res.sheetGuess='office'; else if (t.includes('薬剤師')) res.sheetGuess='pharmacist'; }
+  if (res.sheetGuess) res.sheetKey = res.sheetGuess;
+  // 年月
+  let year=null, month=null;
+  for (const r of rows) {
+    for (let i=1;i<r.length;i++) {
+      if ((r[i]||'').trim()==='年' && /^\d{4}$/.test((r[i-1]||'').trim())) year = parseInt(r[i-1]);
+      if ((r[i]||'').trim()==='月' && /^\d{1,2}$/.test((r[i-1]||'').trim())) month = parseInt(r[i-1]);
+    }
+    if (year && month) break;
+  }
+  if (!year || !month) { res.error='2行目から年・月を読み取れませんでした'; return res; }
+  res.year=year; res.month=month; res.cycleKey=`${year}-${String(month).padStart(2,'0')}`;
+  // 日付ヘッダ → 列→日付キー
+  const dateRow = rows.find(r => (r[0]||'').trim()==='日付・曜日');
+  if (!dateRow) { res.error='「日付・曜日」行が見つかりません'; return res; }
+  const { start, end } = cycleRange(res.cycleKey);
+  const dayToDk = {};
+  for (const d of listDates(start, end)) dayToDk[d.getDate()] = dateKey(d);
+  const colToDk = {};
+  for (let c=2;c<dateRow.length;c++) { const dn=parseInt((dateRow[c]||'').trim()); if (dn && dayToDk[dn]) colToDk[c]=dayToDk[dn]; }
+  // 業務予定メモ
+  const noteRow = rows.find(r => (r[0]||'').trim()==='業務予定・行事等');
+  if (noteRow) for (const c in colToDk) { const n=(noteRow[c]||'').trim(); if (n) res.dayNotes[colToDk[c]]=n; }
+  // キーワード→状態
+  const kw = {'休':'off','公休':'off','希望休':'wishoff','有給':'paid','希有給':'wishpaid','夏休':'summer','夏季休暇':'summer','希夏休':'wishsummer','他店ヘルプ':'help','半日有給':'halfpaid','半日夏季':'halfsummer','半希有給':'wishhalfpaid','半希夏休':'wishhalfsummer'};
+  const places = (ss().settings.helpPlaceNames||[]).map(s=>String(s).trim()).filter(Boolean);
+  const people = ss().people;
+  for (let ri=0; ri<rows.length; ri++) {
+    if ((rows[ri][1]||'').trim() !== '備考') continue;
+    const remarkRow = rows[ri], startRow = rows[ri+1]||[], endRow = rows[ri+2]||[];
+    const name=(remarkRow[0]||'').trim(), code=(startRow[0]||'').trim();
+    let person = code ? people.find(p=>!isHelperPerson(p) && (p.code||'')===code) : null;
+    if (!person && name) person = people.find(p=>!isHelperPerson(p) && p.name===name);
+    const rec = { csvName:name, csvCode:code, matched:!!person, personId:person?person.id:null, cells:[], counts:{} };
+    if (!person) { res.warnings.push(`未一致: ${name||'(無名)'}${code?' ['+code+']':''} → スキップ`); res.members.push(rec); continue; }
+    for (const c in colToDk) {
+      const dk=colToDk[c], remark=(remarkRow[c]||'').trim(), st=(startRow[c]||'').trim(), en=(endRow[c]||'').trim();
+      let val=null;
+      if (kw[remark]) {
+        val=kw[remark];
+        if (val==='help') { const pid=findHelpPatternByTime(st,en); if (pid) val='help:'+pid; } // 他店ヘルプは時間も復元
+      }
+      else if (remark && places.some(pl=>remark.includes(pl))) { const pid=findHelpPatternByTime(st,en); val = pid?('help:'+pid):'help'; }
+      else if (normTime(st)) { const pid=findPatternByTime(st,en); val = pid?('work:'+pid):'work'; }
+      if (val!==null) {
+        rec.cells.push({dk,val});
+        const lbl=importValLabel(val);
+        rec.counts[lbl]=(rec.counts[lbl]||0)+1; res.typeCounts[lbl]=(res.typeCounts[lbl]||0)+1; res.cellCount++;
+        if ((val==='work'||val==='help') && st) res.warnings.push(`${name} ${dk.slice(5)}: ${st}-${en} は一致パターン無し → ${val==='help'?'ヘ(既定時間)':'出(時間未定)'}`);
+      }
+    }
+    res.members.push(rec);
+  }
+  res.ok = res.members.some(m=>m.matched);
+  if (!res.ok && !res.error) res.error='コード/名前が一致するメンバーがいませんでした';
+  return res;
+}
+function renderCsvImportPreview(plan) {
+  const el = document.getElementById('csv-import-summary');
+  const applyBtn = document.getElementById('csv-import-apply');
+  if (plan.error) { el.innerHTML = `<div style="color:#c0392b;font-weight:bold;">取り込めません: ${escapeHtml(plan.error)}</div>`; applyBtn.disabled = true; return; }
+  applyBtn.disabled = false;
+  let html = `<div>取込先周期: <b>${plan.year}年${plan.month}月度</b></div>`;
+  html += `<div style="margin-top:2px;">対象シート: <select id="csv-import-sheet" style="font-size:13px;"><option value="pharmacist" ${plan.sheetKey==='pharmacist'?'selected':''}>薬剤師</option><option value="office" ${plan.sheetKey==='office'?'selected':''}>事務</option></select>${plan.sheetGuess?` <small style="color:#888;">(CSVから検出)</small>`:''}</div>`;
+  html += `<h3 style="font-size:14px;margin:8px 0 4px;">メンバー照合</h3><table style="border-collapse:collapse;font-size:12px;">`;
+  for (const m of plan.members) {
+    const cnt = Object.entries(m.counts).map(([k,v])=>`${k}${v}`).join(' / ');
+    html += `<tr><td style="padding:1px 6px;">${m.matched?'✅':'⚠'}</td><td style="padding:1px 6px;">${escapeHtml(m.csvName)}${m.csvCode?` <small style="color:#888;">[${escapeHtml(m.csvCode)}]</small>`:''}</td><td style="padding:1px 6px;color:${m.matched?'#333':'#c0392b'};">${m.matched?(cnt||'(変更なし)'):'未一致→スキップ'}</td></tr>`;
+  }
+  html += `</table>`;
+  const tot = Object.entries(plan.typeCounts).map(([k,v])=>`${k}:${v}`).join(' / ');
+  html += `<div style="margin-top:6px;"><b>取り込む合計: ${plan.cellCount}件</b>${tot?` <small>(${tot})</small>`:''}</div>`;
+  const noteN = Object.keys(plan.dayNotes).length;
+  if (noteN) html += `<div style="color:#666;font-size:12px;">業務予定メモ ${noteN}件も取り込み</div>`;
+  if (plan.warnings.length) {
+    html += `<h3 style="font-size:13px;margin:8px 0 4px;color:#c47b00;">確認 (${plan.warnings.length}件)</h3><div style="max-height:130px;overflow:auto;font-size:11px;color:#8a5000;background:#fff8ec;border:1px solid #f0d9b0;border-radius:4px;padding:4px 6px;">${plan.warnings.slice(0,40).map(w=>escapeHtml(w)).join('<br>')}${plan.warnings.length>40?`<br>…他 ${plan.warnings.length-40}件`:''}</div>`;
+  }
+  el.innerHTML = html;
+  const sheetSel = document.getElementById('csv-import-sheet');
+  if (sheetSel) sheetSel.onchange = () => { plan.sheetKey = sheetSel.value; };
+}
+function applyCsvImport(plan) {
+  if (!plan || !plan.ok) return;
+  pushUndo();
+  const sheet = state.sheets[plan.sheetKey], cyc = plan.cycleKey;
+  if (!sheet.cycles[cyc]) sheet.cycles[cyc] = {};
+  let applied = 0;
+  for (const m of plan.members) {
+    if (!m.matched) continue;
+    for (const cell of m.cells) {
+      if (!sheet.cycles[cyc][cell.dk]) sheet.cycles[cyc][cell.dk] = {};
+      sheet.cycles[cyc][cell.dk][m.personId] = cell.val;
+      applied++;
+    }
+  }
+  if (Object.keys(plan.dayNotes).length) {
+    if (!sheet.dayNotes) sheet.dayNotes = {};
+    if (!sheet.dayNotes[cyc]) sheet.dayNotes[cyc] = {};
+    for (const dk in plan.dayNotes) sheet.dayNotes[cyc][dk] = plan.dayNotes[dk];
+  }
+  state.activeSheet = plan.sheetKey;
+  state.currentCycle = cyc;
+  saveState();
+  render();
+  alert(`取り込み完了: ${applied}件のセルを反映しました。`);
+}
+document.getElementById('csv-import-btn').onclick = () => document.getElementById('csv-import-file').click();
+document.getElementById('csv-import-file').onchange = (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const plan = analyzeCsvImport(parseCSV(reader.result));
+      window.__csvImportPlan = plan;
+      renderCsvImportPreview(plan);
+      document.getElementById('csv-import-dialog').showModal();
+    } catch (err) { alert('CSVの解析に失敗しました: ' + err.message); }
+    e.target.value = '';
+  };
+  reader.readAsText(f);
+};
+document.getElementById('csv-import-cancel').onclick = () => document.getElementById('csv-import-dialog').close();
+document.getElementById('csv-import-apply').onclick = () => { applyCsvImport(window.__csvImportPlan); document.getElementById('csv-import-dialog').close(); };
 
 // === 印刷 ===
 document.getElementById('print-btn').onclick = () => {
