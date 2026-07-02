@@ -521,6 +521,10 @@
     <button id="add-rule-btn">+ ルール追加</button>
   </div>
 
+  <h3>早出・遅出の個人調整</h3>
+  <p class="hint">各メンバーの早出・遅出の入りやすさを調整します。<b>多め / 普通 / 少なめ / なし(割り当てない)</b>。今の公平化に重みをかける形なので、前日ルール等の条件は活きたままです。（時間決めの自動割り当てに反映）</p>
+  <table class="patterns-table" id="tendency-table"></table>
+
   <h3>曜日ごとの自動割当ルール</h3>
   <p class="hint">🎲 自動割り当て の構成。時期によって変わる場合はここで編集してください。「なし」を選ぶとそのスロットは使われません。残り代替を指定すると日付の偶奇でローテーションされます（木曜の半日午前/午後など）。</p>
   <table class="patterns-table" id="slots-table"></table>
@@ -798,6 +802,8 @@ function migrate(d) {
     for (const p of sheet.people) {
       if (!p.type) p.type = '正社員';
       if (typeof p.code !== 'string') p.code = '';
+      if (!p.earlyTend) p.earlyTend = 'normal'; // 早出傾向
+      if (!p.lateTend) p.lateTend = 'normal';   // 遅出傾向
     }
   }
 
@@ -1283,6 +1289,11 @@ function fmtNum(n) {
   return Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
 }
 function isHelperPerson(p) { return p && p.type === 'ヘルプ'; }
+// 早出・遅出の個人傾向 (normal / more=多め / less=少なめ / none=割り当てない)
+function earlyTendOf(p) { return (p && p.earlyTend) || 'normal'; }
+function lateTendOf(p) { return (p && p.lateTend) || 'normal'; }
+// スコアは低いほど選ばれる。多め=下げて選ばれやすく / 少なめ=上げて選ばれにくく
+function tendBias(t) { return t === 'more' ? -200 : (t === 'less' ? 200 : 0); }
 // 来店ヘルプ(ヘ+)に割り当てる基本シフトのパターンID
 function helperInPatternId() {
   const id = ss().settings.helperInPatternId;
@@ -2212,6 +2223,7 @@ function openSettings() {
   renderHolidaysList();
   renderHelperInSelect();
   renderPersonalRulesTable();
+  renderTendencyTable();
   renderHelpPlaces();
   document.getElementById('min-weekly-rest').value = ss().settings.minWeeklyRest;
   document.getElementById('part-weekly-limit').value = partWeeklyLimit();
@@ -2645,6 +2657,29 @@ function renderPersonalRulesTable() {
     b.onclick = () => { rules.splice(parseInt(b.dataset.ridx), 1); saveState(); renderPersonalRulesTable(); };
   });
 }
+// 早出・遅出の個人傾向テーブル
+function renderTendencyTable() {
+  const tbl = document.getElementById('tendency-table');
+  if (!tbl) return;
+  const regs = ss().people.filter(p => !isHelperPerson(p) && p.type !== 'パート');
+  const LBL = { normal: '普通', more: '多め', less: '少なめ', none: 'なし' };
+  const opts = (sel) => ['normal', 'more', 'less', 'none'].map(v => `<option value="${v}" ${v === sel ? 'selected' : ''}>${LBL[v]}</option>`).join('');
+  let html = '<thead><tr><th>名前</th><th>早出</th><th>遅出</th></tr></thead><tbody>';
+  if (regs.length === 0) html += '<tr><td colspan="3" style="color:#999;font-size:12px;">対象メンバーなし</td></tr>';
+  for (const p of regs) {
+    html += `<tr><td>${escapeHtml(p.name)}</td>
+      <td><select data-pid="${p.id}" data-tend="earlyTend">${opts(earlyTendOf(p))}</select></td>
+      <td><select data-pid="${p.id}" data-tend="lateTend">${opts(lateTendOf(p))}</select></td></tr>`;
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('select[data-tend]').forEach(sel => {
+    sel.onchange = () => {
+      const p = ss().people.find(x => x.id === sel.dataset.pid);
+      if (p) { p[sel.dataset.tend] = sel.value; saveState(); }
+    };
+  });
+}
 document.getElementById('add-rule-btn').onclick = () => {
   if (!Array.isArray(ss().settings.personalRules)) ss().settings.personalRules = [];
   const regulars = ss().people.filter(p => !isHelperPerson(p));
@@ -3028,9 +3063,14 @@ function autoAssign() {
 
   // カウンタ初期化
   const cnt = {};
+  const personById = {};
   for (const p of ss().people) {
     cnt[p.id] = { earlyRole: 0, lateRole: 0, fill: {} };
+    personById[p.id] = p;
   }
+  // 個人傾向のスコア加算 (id指定)
+  const earlyBias = (id) => tendBias(earlyTendOf(personById[id]));
+  const lateBias = (id) => tendBias(lateTendOf(personById[id]));
   const pairKey = (a, b) => [a, b].sort().join('|');
   const pairCnt = {};
 
@@ -3106,22 +3146,23 @@ function autoAssign() {
     });
     if (avail.length === 0) continue;
 
-    // 1. 早出 (ロック済みの早出分を引く)
+    // 1. 早出 (ロック済みの早出分を引く)。個人傾向「なし」は早出対象から除外
     const earlyId = sl.earlyPatternId;
     const earlyLockedCount = earlyId ? (lockedPatternCount[earlyId] || 0) : 0;
-    const earlyNeed = earlyId ? Math.max(0, Math.min((sl.earlyCount || 0) - earlyLockedCount, req - assignedIds.size, avail.length)) : 0;
+    const earlyCand = avail.filter(p => earlyTendOf(p) !== 'none');
+    const earlyNeed = earlyId ? Math.max(0, Math.min((sl.earlyCount || 0) - earlyLockedCount, req - assignedIds.size, earlyCand.length)) : 0;
     if (earlyNeed > 0 && patById[earlyId]) {
       // 早出スコア (低いほど選ばれる):
-      //  - 基本: earlyRole の公平性 (×100)
+      //  - 基本: earlyRole の公平性 (×100) + 個人傾向バイアス (多め-200/少なめ+200)
       //  - 前日ヘルプ帰り: 引き継ぎ未了なので極力避ける (+1000 ≒ 最終手段)
       //  - 前日遅出: 翌日早出が最も好ましい (-15 で優先)
       const earlyScore = (id) => {
-        let s = cnt[id].earlyRole * 100;
+        let s = cnt[id].earlyRole * 100 + earlyBias(id);
         if (wasHelpYesterday(id, dk)) s += 1000;
         else if (wasAnyLateRole(id, dk)) s -= 15;
         return s + Math.random();
       };
-      const sorted = [...avail].sort((a, b) => earlyScore(a.id) - earlyScore(b.id));
+      const sorted = [...earlyCand].sort((a, b) => earlyScore(a.id) - earlyScore(b.id));
       sorted.slice(0, earlyNeed).forEach(p => {
         setCell(state.currentCycle, dk, p.id, `work:${earlyId}`);
         cnt[p.id].earlyRole++;
@@ -3132,15 +3173,16 @@ function autoAssign() {
     // 2. 遅出 (ロック済みの遅出分を引く)
     // 優先順は 早出 → 遅出 → 残り(中番/半日)。人手が足りない日は早出・遅出を
     // 先に埋め、残りパターンは余った分だけ入る(足りなければ不足として残る)。
+    // 個人傾向「なし」は遅出対象から除外。スコアに傾向バイアス(多め-200/少なめ+200)を加算
     const lateId = sl.latePatternId;
     const lateLockedCount = lateId ? (lockedPatternCount[lateId] || 0) : 0;
-    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, avail.length)) : 0;
+    const lateAvail = avail.filter(p => !assignedIds.has(p.id) && lateTendOf(p) !== 'none');
+    const lateNeed = lateId ? Math.max(0, Math.min((sl.lateCount || 0) - lateLockedCount, req - assignedIds.size, lateAvail.length)) : 0;
     if (lateNeed > 0 && patById[lateId]) {
-      const lateAvail = avail.filter(p => !assignedIds.has(p.id));
       if (lateNeed === 1) {
         const sorted = [...lateAvail].sort((a, b) => {
-          const sa = cnt[a.id].lateRole * 100 + (wasOffOrClosed(a.id, dk) ? -10 : 0) + Math.random();
-          const sb = cnt[b.id].lateRole * 100 + (wasOffOrClosed(b.id, dk) ? -10 : 0) + Math.random();
+          const sa = cnt[a.id].lateRole * 100 + lateBias(a.id) + (wasOffOrClosed(a.id, dk) ? -10 : 0) + Math.random();
+          const sb = cnt[b.id].lateRole * 100 + lateBias(b.id) + (wasOffOrClosed(b.id, dk) ? -10 : 0) + Math.random();
           return sa - sb;
         });
         if (sorted[0]) {
@@ -3150,13 +3192,13 @@ function autoAssign() {
         }
       } else if (lateAvail.length >= 2) {
         // ペア選定: 公平性最優先 + ペア多様化 + 前日休みボーナス
-        const sorted = [...lateAvail].sort((a, b) => cnt[a.id].lateRole - cnt[b.id].lateRole);
+        const sorted = [...lateAvail].sort((a, b) => (cnt[a.id].lateRole * 100 + lateBias(a.id)) - (cnt[b.id].lateRole * 100 + lateBias(b.id)));
         const top = sorted.slice(0, Math.min(lateAvail.length, Math.max(4, lateNeed + 2)));
         let bestPair = null, bestScore = Infinity;
         for (let i = 0; i < top.length; i++) {
           for (let j = i+1; j < top.length; j++) {
             const a = top[i], b = top[j];
-            const ic = cnt[a.id].lateRole + cnt[b.id].lateRole;
+            const ic = (cnt[a.id].lateRole + lateBias(a.id) / 100) + (cnt[b.id].lateRole + lateBias(b.id) / 100);
             const pc = pairCnt[pairKey(a.id, b.id)] || 0;
             const offBonus = (wasOffOrClosed(a.id, dk) ? -10 : 0) + (wasOffOrClosed(b.id, dk) ? -10 : 0);
             const score = ic * 1000 + pc * 30 + offBonus + Math.random() * 10;
@@ -3175,8 +3217,8 @@ function autoAssign() {
         // lateNeed > 2 の場合の追加割当（公平性のみ）
         if (lateNeed > 2) {
           const stillNeed = lateNeed - 2;
-          const rest = avail.filter(p => !assignedIds.has(p.id));
-          const sortedRest = [...rest].sort((a, b) => cnt[a.id].lateRole - cnt[b.id].lateRole);
+          const rest = avail.filter(p => !assignedIds.has(p.id) && lateTendOf(p) !== 'none');
+          const sortedRest = [...rest].sort((a, b) => (cnt[a.id].lateRole * 100 + lateBias(a.id)) - (cnt[b.id].lateRole * 100 + lateBias(b.id)));
           sortedRest.slice(0, stillNeed).forEach(p => {
             setCell(state.currentCycle, dk, p.id, `work:${lateId}`);
             cnt[p.id].lateRole++;
